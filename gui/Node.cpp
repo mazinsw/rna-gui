@@ -5,6 +5,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+static float viewZoom = 1;
+static Vector2 viewOrigin = { 0, 0 };
+
 Node::Node()
 {
 	setSelected(false);
@@ -45,17 +48,32 @@ bool Node::parseNumber(const std::string& text, double& value)
 	return true;
 }
 
+void Node::setView(float zoom, Vector2 origin)
+{
+	viewZoom = zoom;
+	viewOrigin = origin;
+}
+
 Vector2 Node::measureText(const std::string& text, float fontSize)
 {
-	return MeasureTextEx(getFont(fontSize), text.c_str(), fontSize, 0);
+	return MeasureTextEx(getFont(fontSize * viewZoom), text.c_str(), fontSize, 0);
+}
+
+/**
+ * Coordenada da rede no pixel da tela mais próximo
+ */
+static float toPixel(float value, float origin)
+{
+	float scale = getRenderScale();
+	return (roundf((value * viewZoom + origin) * scale) / scale - origin) / viewZoom;
 }
 
 void Node::drawText(const std::string& text, Vector2 position, float fontSize, Color color)
 {
 	// no pixel da tela, para não borrar o texto
-	float scale = getRenderScale();
-	DrawTextEx(getFont(fontSize), text.c_str(), Vector2{ roundf(position.x * scale) / scale,
-		roundf(position.y * scale) / scale }, fontSize, 0, color);
+	DrawTextEx(getFont(fontSize * viewZoom), text.c_str(), Vector2{
+		toPixel(position.x, viewOrigin.x), toPixel(position.y, viewOrigin.y) }, fontSize, 0,
+		color);
 }
 
 void Node::drawTextCentered(const std::string& text, Vector2 center, float fontSize,

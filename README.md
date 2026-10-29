@@ -72,7 +72,11 @@ peso 1.
   (Option no Mac) para mover sem alinhar.
 - "Reorganizar" refaz a posição de todos os nós em camadas: as entradas na primeira, cada neurônio
   logo depois do nó mais distante que o alimenta e as saídas na última. Dentro da camada os nós
-  ficam na altura média dos que os alimentam, para as conexões cruzarem menos.
+  ficam na altura média dos que os alimentam, para as conexões cruzarem menos. Depois centraliza a
+  rede com o zoom que a mostra inteira, no máximo 100%.
+- A roda do mouse aproxima e afasta a rede em volta do ponteiro, de 25% a 400%. Arraste o fundo
+  vazio, ou qualquer ponto com o botão do meio, para mover a rede na tela. Abrir um arquivo volta a
+  vista para 100%.
 
 Cada neurônio tem um bias (`b`, mostrado acima dele) somado à entrada da função de ativação, que faz
 o papel do limiar negativo. Ele começa aleatório e é treinado junto com os pesos. Para modelar o

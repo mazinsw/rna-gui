@@ -14,7 +14,8 @@
 
 /**
  * Área de edição da rede, recebe os eventos de mouse e teclado com
- * coordenadas relativas ao seu canto superior esquerdo
+ * coordenadas relativas ao seu canto superior esquerdo. A vista tem zoom e
+ * deslocamento: os nós ficam em coordenadas da rede, convertidas na entrada.
  */
 class NeuralNetwork
 {
@@ -46,6 +47,12 @@ private:
 	bool dragging;
 	// alinhamento do nó arrastado ou posicionado em cada eixo
 	int snapX, snapY;
+	// vista: posição na área de edição = posição na rede * zoom + pan
+	float zoom;
+	Vector2 pan;
+	// arrastando a vista, com a última posição do mouse na área de edição
+	bool panning;
+	int panX, panY;
 	int actionState;
 	Node *nodeAdd;
 	Edge *edgeAdd;
@@ -97,10 +104,16 @@ private:
 	void draw();
 
 	/**
-	 * Linhas de alinhamento do nó arrastado ou posicionado, nas dimensões da
-	 * área de edição
+	 * Linhas de alinhamento do nó arrastado ou posicionado, na tela, nos
+	 * limites da área de edição
 	 */
-	void drawGuides(float width, float height);
+	void drawGuides(Rectangle bounds);
+
+	/**
+	 * Posição na rede de um ponto da área de edição
+	 */
+	Point toWorld(int x, int y);
+	void startPanning(int x, int y);
 
 	/**
 	 * Posição do nó alinhada à camada ou à linha de um nó próximo e, sem
@@ -191,6 +204,7 @@ public:
 		nodeToggle = NULL;
 		bMoving = false;
 		dragging = false;
+		panning = false;
 		bDown = false;
 	}
 
@@ -206,16 +220,26 @@ public:
 	void mouseRightDown(int x, int y);
 	void mouseMove(int x, int y)
 	{
+		if(panning)
+		{
+			pan.x += x - panX;
+			pan.y += y - panY;
+			panX = x;
+			panY = y;
+			return;
+		}
+		// o tremor do clique é medido na tela, o arraste do nó na rede
+		Point p = toWorld(x, y);
 		if(actionState == ActionAdd)
 		{
-			updateAddNeuron(x, y);
+			updateAddNeuron(p.x, p.y);
 		}
 		else if (bDown)
 		{
-			this->x += x - downX;
-			this->y += y - downY;
-			downX = x;
-			downY = y;
+			this->x += p.x - downX;
+			this->y += p.y - downY;
+			downX = p.x;
+			downY = p.y;
 			if(bMoving && !dragging && (abs(x - pressX) > 3 || abs(y - pressY) > 3))
 			{
 				dragging = true;
@@ -233,7 +257,7 @@ public:
 		}
 		else if(actionState == ActionConnect)
 		{
-			updateAddEdge(x, y);
+			updateAddEdge(p.x, p.y);
 		}
 	}
 	/**
@@ -243,12 +267,35 @@ public:
 
 	/**
 	 * Indica se o botão do mouse foi pressionado na área de edição e ainda
-	 * não foi solto
+	 * não foi solto, ou se a vista está sendo arrastada
 	 */
 	inline bool isMouseDown()
 	{
-		return bDown;
+		return bDown || panning;
 	}
+
+	/**
+	 * Zoom da roda do mouse, o ponto da rede sob o mouse fica parado
+	 */
+	void zoomAt(int x, int y, float wheel);
+
+	/**
+	 * Botão do meio pressionado: arrasta a vista mesmo sobre um nó
+	 */
+	void startPan(int x, int y);
+	void endPan();
+
+	/**
+	 * Posição na área de edição de um ponto da rede
+	 */
+	Vector2 toScreen(Vector2 point);
+	Rectangle toScreen(Rectangle rect);
+
+	/**
+	 * Centraliza a rede na área, com o zoom que a mostra inteira, sem passar
+	 * de 100%. A área é a dos centros dos nós, na área de edição.
+	 */
+	void fitView(Rectangle area);
 public:
 	NeuralNetwork();
 	~NeuralNetwork();
@@ -272,8 +319,9 @@ public:
 	/**
 	 * Reorganiza a rede em camadas: as entradas na primeira, cada neurônio
 	 * depois dos nós que o alimentam e as saídas na última, centralizadas na
-	 * área informada para os centros dos nós e alinhadas à grade. Retorna o
-	 * número de camadas.
+	 * área informada para os centros dos nós e alinhadas à grade. Sem espaço
+	 * para a distância mínima entre os nós a rede passa da área, e fitView a
+	 * mostra inteira. Retorna o número de camadas.
 	 */
 	int arrange(Rectangle area);
 	void setInputBias(InputNode *input, bool bias);

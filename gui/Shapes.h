@@ -14,6 +14,12 @@ namespace shapes
 	 */
 	void beginFrame();
 
+	/**
+	 * Zoom das coordenadas em que as formas são desenhadas, para a borda
+	 * suavizada continuar com 1 pixel da tela. beginFrame volta para 1.
+	 */
+	void setZoom(float zoom);
+
 	void line(Vector2 a, Vector2 b, float thickness, Color color);
 
 	/**

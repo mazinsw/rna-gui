@@ -11,7 +11,12 @@ namespace shapes
 
 	void beginFrame()
 	{
-		feather = 1 / getRenderScale();
+		setZoom(1);
+	}
+
+	void setZoom(float zoom)
+	{
+		feather = 1 / (getRenderScale() * zoom);
 	}
 
 	static Color transparent(Color color)

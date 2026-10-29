@@ -16,11 +16,20 @@
 // pontos da grade a cada GRID_SIZE pixels, o primeiro em GRID_OFFSET
 #define GRID_SIZE 20
 #define GRID_OFFSET 10
-// distância em que o nó arrastado entra na camada ou na linha de outro nó
+// distância na tela em que o nó arrastado entra na camada ou na linha de
+// outro nó
 #define SNAP_DISTANCE 8
-// maior distância entre camadas e entre os nós de uma camada ao reorganizar
-#define ARRANGE_LAYER_SPACING 200
-#define ARRANGE_NODE_SPACING 160
+// distância entre camadas e entre os nós de uma camada ao reorganizar
+#define ARRANGE_MIN_LAYER_SPACING 140
+#define ARRANGE_MAX_LAYER_SPACING 200
+#define ARRANGE_MIN_NODE_SPACING 120
+#define ARRANGE_MAX_NODE_SPACING 160
+// limites do zoom e passo de cada volta da roda do mouse
+#define MIN_ZOOM 0.25f
+#define MAX_ZOOM 4.0f
+#define ZOOM_STEP 1.1f
+// menor distância na tela entre os pontos da grade
+#define MIN_GRID_SPACING 12
 
 /*
  * Formato do arquivo, little-endian com tamanhos fixos para ser o mesmo em
@@ -96,6 +105,10 @@ NeuralNetwork::NeuralNetwork(): execution(neurons, edges), random(std::random_de
 	bMoving = false;
 	dragging = false;
 	snapX = snapY = SnapNone;
+	zoom = 1;
+	pan = Vector2{ 0, 0 };
+	panning = false;
+	panX = panY = 0;
 	x = y = downX = downY = 0;
 	nodeMoving = NULL;
 	nodeSelected = NULL;
@@ -164,19 +177,30 @@ void NeuralNetwork::paint(Rectangle bounds)
 {
 	DrawRectangleRec(bounds, ui::toColor(ui::CanvasColor));
 	BeginScissorMode((int)bounds.x, (int)bounds.y, (int)bounds.width, (int)bounds.height);
-	// grade de pontos, onde os nós se alinham
+	// grade de pontos, onde os nós se alinham. Com o zoom afastado fica um a
+	// cada 2, 4..., para os pontos não se juntarem
 	Color grid = ui::toColor(ui::GridColor);
-	for(float gy = bounds.y + GRID_OFFSET; gy < bounds.y + bounds.height; gy += GRID_SIZE)
+	float spacing = GRID_SIZE * zoom;
+	while(spacing < MIN_GRID_SPACING)
+		spacing *= 2;
+	Vector2 first = toScreen(Vector2{ GRID_OFFSET, GRID_OFFSET });
+	float left = bounds.x + first.x - floorf(first.x / spacing) * spacing;
+	float top = bounds.y + first.y - floorf(first.y / spacing) * spacing;
+	for(float gy = top; gy < bounds.y + bounds.height; gy += spacing)
 	{
-		for(float gx = bounds.x + GRID_OFFSET; gx < bounds.x + bounds.width; gx += GRID_SIZE)
+		for(float gx = left; gx < bounds.x + bounds.width; gx += spacing)
 			DrawRectangleRec(Rectangle{ gx - 0.75f, gy - 0.75f, 1.5f, 1.5f }, grid);
 	}
-	// desenha com a origem no canto da área de edição
-	Camera2D camera = { { bounds.x, bounds.y }, { 0, 0 }, 0, 1 };
+	drawGuides(bounds);
+	// desenha a rede com o zoom e o deslocamento da vista
+	Camera2D camera = { { bounds.x + pan.x, bounds.y + pan.y }, { 0, 0 }, 0, zoom };
+	shapes::setZoom(zoom);
+	Node::setView(zoom, camera.offset);
 	BeginMode2D(camera);
-	drawGuides(bounds.width, bounds.height);
 	draw();
 	EndMode2D();
+	Node::setView(1, Vector2{ 0, 0 });
+	shapes::setZoom(1);
 	EndScissorMode();
 }
 
@@ -198,7 +222,7 @@ static void dashedLine(Vector2 a, Vector2 b, Color color)
 	}
 }
 
-void NeuralNetwork::drawGuides(float width, float height)
+void NeuralNetwork::drawGuides(Rectangle bounds)
 {
 	Node *node = NULL;
 	if(dragging)
@@ -209,11 +233,12 @@ void NeuralNetwork::drawGuides(float width, float height)
 		return;
 	// por baixo das conexões e dos nós: azul na camada ou na linha de outro
 	// nó, tracejada no ponto da grade
-	Vector2 center = node->getCenter();
+	Vector2 center = toScreen(node->getCenter());
+	center = Vector2{ bounds.x + center.x, bounds.y + center.y };
 	Color layer = ui::toColor(ui::AccentColor);
 	Color grid = ui::toColor(ui::FaintColor);
-	Vector2 top = { center.x, 0 }, bottom = { center.x, height };
-	Vector2 left = { 0, center.y }, right = { width, center.y };
+	Vector2 top = { center.x, bounds.y }, bottom = { center.x, bounds.y + bounds.height };
+	Vector2 left = { bounds.x, center.y }, right = { bounds.x + bounds.width, center.y };
 	if(snapX == SnapLayer)
 		shapes::line(top, bottom, 1, layer);
 	else if(snapX == SnapGrid)
@@ -238,7 +263,7 @@ Point NeuralNetwork::snapPosition(Node *node, int x, int y)
 	snapX = snapY = SnapGrid;
 	// a camada mais próxima tem prioridade sobre a grade, para alinhar com nós
 	// que estão fora dela
-	int distanceX = SNAP_DISTANCE + 1, distanceY = SNAP_DISTANCE + 1;
+	float distanceX = SNAP_DISTANCE / zoom + 1, distanceY = distanceX;
 	std::vector<Node *>::iterator it;
 	for(it = neurons.begin(); it != neurons.end(); it++)
 	{
@@ -259,6 +284,75 @@ Point NeuralNetwork::snapPosition(Node *node, int x, int y)
 		}
 	}
 	return p;
+}
+
+Point NeuralNetwork::toWorld(int x, int y)
+{
+	return Point((int)floorf((x - pan.x) / zoom + 0.5f), (int)floorf((y - pan.y) / zoom + 0.5f));
+}
+
+Vector2 NeuralNetwork::toScreen(Vector2 point)
+{
+	return Vector2{ point.x * zoom + pan.x, point.y * zoom + pan.y };
+}
+
+Rectangle NeuralNetwork::toScreen(Rectangle rect)
+{
+	Vector2 corner = toScreen(Vector2{ rect.x, rect.y });
+	return Rectangle{ corner.x, corner.y, rect.width * zoom, rect.height * zoom };
+}
+
+void NeuralNetwork::zoomAt(int x, int y, float wheel)
+{
+	float next = zoom * powf(ZOOM_STEP, wheel);
+	next = next < MIN_ZOOM ? MIN_ZOOM : next > MAX_ZOOM ? MAX_ZOOM : next;
+	pan.x = x - (x - pan.x) * next / zoom;
+	pan.y = y - (y - pan.y) * next / zoom;
+	zoom = next;
+}
+
+void NeuralNetwork::startPanning(int x, int y)
+{
+	panning = true;
+	panX = x;
+	panY = y;
+}
+
+void NeuralNetwork::startPan(int x, int y)
+{
+	// não interrompe o arraste de um nó
+	if(!bDown)
+		startPanning(x, y);
+}
+
+void NeuralNetwork::endPan()
+{
+	panning = false;
+}
+
+void NeuralNetwork::fitView(Rectangle area)
+{
+	zoom = 1;
+	pan = Vector2{ 0, 0 };
+	if(neurons.empty())
+		return;
+	Point low = neurons[0]->getPosition(), high = low;
+	std::vector<Node *>::iterator it;
+	for(it = neurons.begin(); it != neurons.end(); it++)
+	{
+		const Point& p = (*it)->getPosition();
+		low = Point(std::min(low.x, p.x), std::min(low.y, p.y));
+		high = Point(std::max(high.x, p.x), std::max(high.y, p.y));
+	}
+	if(high.x - low.x > area.width)
+		zoom = area.width / (high.x - low.x);
+	if((high.y - low.y) * zoom > area.height)
+		zoom = area.height / (high.y - low.y);
+	if(zoom < MIN_ZOOM)
+		zoom = MIN_ZOOM;
+	// no pixel inteiro, para as linhas finas não borrarem
+	pan.x = roundf(area.x + area.width / 2 - (low.x + high.x) / 2.0f * zoom);
+	pan.y = roundf(area.y + area.height / 2 - (low.y + high.y) / 2.0f * zoom);
 }
 
 void NeuralNetwork::updateInfluence()
@@ -541,16 +635,17 @@ void NeuralNetwork::keepRightOf(int left)
 }
 
 /**
- * Maior espaçamento até max, múltiplo da grade, para count nós caberem em size
+ * Maior espaçamento entre min e max, múltiplo da grade, para count nós
+ * caberem em size
  */
-static int arrangeSpacing(int count, float size, int max)
+static int arrangeSpacing(int count, float size, int min, int max)
 {
 	if(count < 2)
 		return 0;
 	int spacing = (int)(size / (count - 1)) / GRID_SIZE * GRID_SIZE;
 	if(spacing > max)
 		spacing = max;
-	return spacing < GRID_SIZE ? GRID_SIZE : spacing;
+	return spacing < min ? min : spacing;
 }
 
 int NeuralNetwork::arrange(Rectangle area)
@@ -605,7 +700,8 @@ int NeuralNetwork::arrange(Rectangle area)
 	}
 	columns.erase(std::remove_if(columns.begin(), columns.end(),
 		[](const std::vector<Node *>& column) { return column.empty(); }), columns.end());
-	int spacingX = arrangeSpacing((int)columns.size(), area.width, ARRANGE_LAYER_SPACING);
+	int spacingX = arrangeSpacing((int)columns.size(), area.width, ARRANGE_MIN_LAYER_SPACING,
+		ARRANGE_MAX_LAYER_SPACING);
 	int left = snapToGrid((int)(area.x + (area.width - spacingX * ((int)columns.size() - 1)) / 2));
 	std::map<Node *, Point> positions;
 	for(size_t c = 0; c < columns.size(); c++)
@@ -632,7 +728,8 @@ int NeuralNetwork::arrange(Rectangle area)
 		{
 			return heights[a] < heights[b];
 		});
-		int spacingY = arrangeSpacing((int)column.size(), area.height, ARRANGE_NODE_SPACING);
+		int spacingY = arrangeSpacing((int)column.size(), area.height, ARRANGE_MIN_NODE_SPACING,
+			ARRANGE_MAX_NODE_SPACING);
 		int top = snapToGrid((int)(area.y + (area.height - spacingY * ((int)column.size() - 1)) / 2));
 		for(size_t n = 0; n < column.size(); n++)
 			positions[column[n]] = Point(left + spacingX * (int)c, top + spacingY * (int)n);
@@ -676,6 +773,10 @@ void NeuralNetwork::clear()
 	dragging = false;
 	actionState = ActionNone;
 	request = Request{ Request::None, NULL, NULL };
+	// a rede nova abre sem zoom e sem deslocamento
+	zoom = 1;
+	pan = Vector2{ 0, 0 };
+	panning = false;
 }
 
 void NeuralNetwork::notifyDataChanged()
@@ -693,6 +794,7 @@ void NeuralNetwork::cancelAction()
 	nodeToggle = NULL;
 	bMoving = false;
 	dragging = false;
+	panning = false;
 	bDown = false;
 }
 
@@ -731,8 +833,14 @@ void NeuralNetwork::pressNode(Node *node, int x, int y)
 
 void NeuralNetwork::mouseDown(int x, int y)
 {
-	downX = pressX = x;
-	downY = pressY = y;
+	// o botão do meio já arrasta a vista
+	if(panning)
+		return;
+	int screenX = pressX = x;
+	int screenY = pressY = y;
+	Point p = toWorld(x, y);
+	x = downX = p.x;
+	y = downY = p.y;
 	nodeToggle = NULL;
 	dragging = false;
 	if(actionState == ActionAdd)
@@ -769,10 +877,16 @@ void NeuralNetwork::mouseDown(int x, int y)
 		request = Request{ Request::EditWeight, NULL, edge };
 	selectEdge(edge);
 	bDown = true;
+	// no fundo vazio arrasta a vista
+	if(edge == NULL)
+		startPanning(screenX, screenY);
 }
 
 void NeuralNetwork::mouseDoubleClick(int x, int y)
 {
+	Point p = toWorld(x, y);
+	x = p.x;
+	y = p.y;
 	Node *node = neuronAt(x, y);
 	// na execução cada clique na entrada ou na saída alterna o valor
 	if(node != NULL && running && !node->is(Node::TypeNeuron))
@@ -803,6 +917,9 @@ void NeuralNetwork::mouseDoubleClick(int x, int y)
 void NeuralNetwork::mouseRightDown(int x, int y)
 {
 	cancelAction();
+	Point p = toWorld(x, y);
+	x = p.x;
+	y = p.y;
 	Node *node = neuronAt(x, y);
 	// o menu do bias é o do neurônio
 	if(node == NULL)

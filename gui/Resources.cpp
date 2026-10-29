@@ -50,6 +50,10 @@ const Font& getFont(float size)
 	int pixels = (int)roundf(size * getRenderScale());
 	if(pixels < 1)
 		pixels = 1;
+	// os tamanhos grandes vêm do zoom da área de edição: um a cada 4 pixels,
+	// para não carregar uma fonte a cada passo do zoom
+	if(pixels > 32)
+		pixels = (pixels + 2) / 4 * 4;
 	auto it = fonts.find(pixels);
 	if(it != fonts.end())
 		return it->second;

@@ -2,6 +2,7 @@
 #define _INLINEEDITOR_H_
 #include "Widgets.h"
 #include "Edge.h"
+#include "NeuralNetwork.h"
 #include "NeuronNode.h"
 #include "Resources.h"
 
@@ -89,11 +90,13 @@ public:
 		return false;
 	}
 	/**
-	 * Campo sobre o rótulo, origin é o canto da área de edição na janela
+	 * Campo sobre o rótulo, origin é o canto da área de edição na janela e a
+	 * rede converte a posição do rótulo com o zoom da vista
 	 */
-	void layout(Vector2 origin)
+	void layout(Vector2 origin, NeuralNetwork * network)
 	{
-		Rectangle label = edge != NULL ? edge->getLabelBox() : neuron->getBiasBox();
+		Rectangle label = network->toScreen(edge != NULL ? edge->getLabelBox() :
+			neuron->getBiasBox());
 		float width = label.width + 24;
 		if(width < 84)
 			width = 84;

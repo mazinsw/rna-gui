@@ -118,6 +118,7 @@ private:
 		Rectangle area = { PanelRight + 40, 70, canvas.boundingBox.width - PanelRight - 100,
 			canvas.boundingBox.height - 180 };
 		int layers = neuralNetwork->arrange(area);
+		neuralNetwork->fitView(area);
 		if(layers == 0)
 			message = "Adicione nós para reorganizar a rede.";
 		else
@@ -193,12 +194,13 @@ private:
 		{
 			// à direita do nó
 			const Point& p = request.node->getPosition();
+			Vector2 corner = neuralNetwork->toScreen(Vector2{ p.x + 36.0f, p.y - 28.0f });
 			menu.show(neuralNetwork, request.node, NULL,
-				Vector2{ origin.x + p.x + 36, origin.y + p.y - 28 });
+				Vector2{ origin.x + corner.x, origin.y + corner.y });
 		}
 		else if(request.kind == NeuralNetwork::Request::Menu)
 		{
-			Rectangle box = request.edge->getLabelBox();
+			Rectangle box = neuralNetwork->toScreen(request.edge->getLabelBox());
 			menu.show(neuralNetwork, NULL, request.edge,
 				Vector2{ origin.x + box.x + box.width + 6, origin.y + box.y });
 		}
@@ -211,6 +213,9 @@ private:
 	{
 		Vector2 last = mouse;
 		mouse = GetMousePosition();
+		// antes dos diálogos e do menu, que tomam os eventos do quadro
+		if(IsMouseButtonReleased(MOUSE_BUTTON_MIDDLE))
+			neuralNetwork->endPan();
 		dropFiles();
 		// diálogo modal: a área de edição não recebe nada neste quadro
 		if(messageDialog.isVisible())
@@ -261,6 +266,12 @@ private:
 			neuralNetwork->mouseMove(x, y);
 		if(pressed && over)
 			message.clear();
+		// o botão do meio arrasta a vista mesmo sobre um nó, a roda dá zoom
+		if(IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE) && over)
+			neuralNetwork->startPan(x, y);
+		float wheel = GetMouseWheelMove();
+		if(wheel != 0 && over)
+			neuralNetwork->zoomAt(x, y, wheel);
 		if(input::mousePressed() && over)
 			neuralNetwork->mouseDown(x, y);
 		if(input::mouseDoubleClicked() && over)
@@ -442,7 +453,7 @@ private:
 		if(menu.isVisible())
 			menu.layout();
 		if(editor.isVisible())
-			editor.layout(origin);
+			editor.layout(origin, neuralNetwork);
 		if(messageDialog.isVisible())
 			messageDialog.layout();
 		else if(confirmDialog.isVisible())

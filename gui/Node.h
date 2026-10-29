@@ -111,6 +111,12 @@ public:
 	 */
 	static bool parseNumber(const std::string& text, double& value);
 
+	/**
+	 * Zoom e canto da origem da rede na janela durante o desenho, para o texto
+	 * ser rasterizado no tamanho da tela e alinhado aos pixels dela
+	 */
+	static void setView(float zoom, Vector2 origin);
+
 	static Vector2 measureText(const std::string& text, float fontSize);
 
 	/**
