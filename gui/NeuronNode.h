@@ -24,6 +24,7 @@ public:
 	virtual Type getType() { return TypeNeuron; }
 	virtual bool IsIn(const Point& p);
 	virtual void draw();
+	virtual void drawValue();
 
 	inline int getFunctionType()
 	{

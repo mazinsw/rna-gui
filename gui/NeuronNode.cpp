@@ -1,4 +1,5 @@
 #include "NeuronNode.h"
+#include "Widgets.h"
 
 NeuronNode::NeuronNode(Texture2D img, std::vector<Texture2D>& funcImgs): Node(img),
 	funcImgs(funcImgs)
@@ -20,4 +21,14 @@ void NeuronNode::draw()
 	Node::draw();
 	Texture2D img = funcImgs[functionType];
 	DrawTexture(img, getPosition().x + 9, getPosition().y - (img.height / 2), WHITE);
+}
+
+void NeuronNode::drawValue()
+{
+	// abaixo do neurônio
+	std::string text = "y = " + formatNumber(getValue(), 2);
+	Vector2 size = measureLabel(text, 12);
+	Rectangle box = { getPosition().x - size.x / 2, (float)getPosition().y + 34, size.x,
+		size.y };
+	drawLabel(box, text, 12, WHITE, ui::toColor(ui::BorderColor), Color{ 58, 58, 58, 255 });
 }

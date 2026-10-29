@@ -11,6 +11,7 @@ Edge::Edge(Node *first, Node *second, double weight)
 	setSecond(second);
 	setWeight(weight);
 	setSelected(false);
+	setChanged(false);
 }
 
 void Edge::draw()
@@ -26,7 +27,9 @@ void Edge::draw()
 		sz.x + 12, sz.y + 12 };
 	// cantos com raio 4
 	float roundness = 8 / (box.width < box.height ? box.width : box.height);
-	if(isSelected())
+	if(isChanged())
+		color = Color{ 0xFF, 0xE5, 0x8F, 0xFF };
+	else if(isSelected())
 		color = Color{ 0xF0, 0xF0, 0xF0, 0xFF };
 	else
 		color = Color{ 0xE0, 0xF0, 0xE0, 0xFF };
@@ -80,16 +83,4 @@ bool Edge::IsIn(const Point& p)
 	y1 = (y1 + y3) / 2 + mh;
 	return x2 >= x1 - mw && x2 <= x1 + mw &&
 		   y2 >= y1 - mh && y2 <= y1 + mh;
-}
-
-std::string Edge::trimZeroes(const std::string& s)
-{
-	size_t c = s.size();
-	while(c > 0 && s[c - 1] == '0')
-		c--;
-	if(c > 0 && (s[c - 1] == '.' || s[c - 1] == ','))
-		c--;
-	if(c == 0 && s.size() > 0)
-		c = 1;
-	return std::string(s, 0, c);
 }

@@ -37,7 +37,8 @@ public:
 	void show(Edge * edge)
 	{
 		this->edge = edge;
-		editPeso.setText(edge->getWeightString());
+		// valor completo, o rótulo da conexão mostra até 3 casas
+		editPeso.setText(Node::formatNumber(edge->getWeight(), 6));
 		editPeso.selectAll();
 		visible = true;
 	}

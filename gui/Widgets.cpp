@@ -22,27 +22,37 @@ namespace ui
 			.wrapMode = wrapMode });
 	}
 
-	bool button(Clay_ElementId id, Clay_String text, bool enabled, float minWidth)
+	bool button(Clay_ElementId id, Clay_String text, bool enabled, float minWidth,
+		ButtonStyle style)
 	{
 		bool hovered = enabled && Clay_PointerOver(id);
 		if(hovered && input::mousePressed())
 			pressedId = id.id;
 		bool pressed = hovered && pressedId == id.id && input::mouseDown();
 		bool clicked = hovered && pressedId == id.id && input::mouseReleased();
-		Clay_Color background = ButtonColor;
+		bool primary = style == ButtonPrimary;
+		Clay_Color background = primary ? FocusColor : ButtonColor;
 		if(pressed)
-			background = ButtonPressedColor;
+			background = primary ? PrimaryPressedColor : ButtonPressedColor;
 		else if(hovered)
-			background = ButtonHoverColor;
+			background = primary ? PrimaryHoverColor : ButtonHoverColor;
+		Clay_Color border = style == ButtonDefault ? BorderColor : FocusColor;
+		Clay_Color color = TextColor;
+		if(!enabled)
+			color = DisabledTextColor;
+		else if(primary)
+			color = HighlightTextColor;
+		else if(style == ButtonAccent)
+			color = AccentTextColor;
 		CLAY({ .id = id,
 			.layout = { .sizing = { CLAY_SIZING_FIT(minWidth), CLAY_SIZING_FIXED(ButtonHeight) },
 				.padding = { 12, 12, 0, 0 },
 				.childAlignment = { CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER } },
 			.backgroundColor = background,
 			.cornerRadius = CLAY_CORNER_RADIUS(5),
-			.border = { .color = BorderColor, .width = CLAY_BORDER_OUTSIDE(1) } })
+			.border = { .color = border, .width = CLAY_BORDER_OUTSIDE(1) } })
 		{
-			CLAY_TEXT(text, textConfig(FontSize, enabled ? TextColor : DisabledTextColor));
+			CLAY_TEXT(text, textConfig(FontSize, color));
 		}
 		return clicked;
 	}

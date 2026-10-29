@@ -1,8 +1,6 @@
 #ifndef _EDGE_H_
 #define _EDGE_H_
 #include "Node.h"
-#include <algorithm>
-#include <stdio.h>
 #include <string>
 
 class Edge
@@ -12,6 +10,7 @@ private:
 	Node* second;
 	double weight;
 	bool selected;
+	bool changed;
 	Vector2 sz;
 	std::string weightStr;
 protected:
@@ -30,11 +29,8 @@ public:
 	}
 	inline void setWeight(double weight)
 	{
-		char str[64];
 		this->weight = weight;
-		snprintf(str, sizeof(str), "%lf", getWeight());
-		weightStr = trimZeroes(str);
-		std::replace(weightStr.begin(), weightStr.end(), '.', ',');
+		weightStr = Node::formatNumber(weight, 3);
 	}
 
 	inline Node* getFirst()
@@ -51,7 +47,7 @@ public:
 	}
 
 	/**
-	 * Peso formatado com vírgula decimal e sem zeros à direita
+	 * Peso formatado com vírgula decimal, até 3 casas e sem zeros à direita
 	 */
 	inline const std::string& getWeightString()
 	{
@@ -67,9 +63,21 @@ public:
 	{
 		return selected;
 	}
+
+	/**
+	 * Marca o peso como alterado pelo último treinamento
+	 */
+	inline void setChanged(bool changed)
+	{
+		this->changed = changed;
+	}
+
+	inline bool isChanged()
+	{
+		return changed;
+	}
 	void draw();
 	virtual bool IsIn(const Point& p);
-	static std::string trimZeroes(const std::string& s);
 };
 
 #endif /* _EDGE_H_ */

@@ -1,17 +1,17 @@
 1 3 4
 1 degrau
 
-entrada  1  1.5 1
+entrada  1 -1.5 1
 entrada  2  1.0 1
 entrada  3  1.0 1
 saida    1
 
 amostras 4
--1.0 0.0 0.0
+1.0 0.0 0.0
 saidas 0.0
--1.0 0.0 1.0
+1.0 0.0 1.0
 saidas 0.0
--1.0 1.0 0.0
+1.0 1.0 0.0
 saidas 0.0
--1.0 1.0 1.0
+1.0 1.0 1.0
 saidas 1.0

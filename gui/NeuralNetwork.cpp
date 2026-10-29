@@ -74,7 +74,7 @@ static double readDouble(std::ifstream& file)
 	return value;
 }
 
-NeuralNetwork::NeuralNetwork()
+NeuralNetwork::NeuralNetwork(): execution(neurons, edges), random(std::random_device()())
 {
 	neuronImg = loadTextureResource("neuron");
 	inputImg = loadTextureResource("input");
@@ -94,6 +94,9 @@ NeuralNetwork::NeuralNetwork()
 	edgeAdd = new Edge(NULL, nodeAdd, 0);
 	actionState = ActionNone;
 	modified = false;
+	running = false;
+	nodeToggle = NULL;
+	pressX = pressY = 0;
 }
 
 NeuralNetwork::~NeuralNetwork()
@@ -179,6 +182,11 @@ void NeuralNetwork::draw()
 	{
 		nodeAdd->draw();
 	}
+	if(running)
+	{
+		for(it = neurons.begin(); it != neurons.end(); it++)
+			(*it)->drawValue();
+	}
 }
 
 Node *NeuralNetwork::neuronAt(int x, int y)
@@ -189,6 +197,19 @@ Node *NeuralNetwork::neuronAt(int x, int y)
 	{
 		Node *node = *it;
 		if(node->IsIn(p))
+			return node;
+	}
+	return NULL;
+}
+
+Node *NeuralNetwork::valueAt(int x, int y)
+{
+	std::vector<Node *>::iterator it;
+	Point p(x, y);
+	for(it = neurons.begin(); it != neurons.end(); it++)
+	{
+		Node *node = *it;
+		if(node->IsInValue(p))
 			return node;
 	}
 	return NULL;
@@ -231,6 +252,9 @@ Edge *NeuralNetwork::edgeAt(int x, int y)
 
 bool NeuralNetwork::canConnect(Node *first, Node *second)
 {
+	// o segundo clique de um clique duplo não liga o nó a ele mesmo
+	if(first == second)
+		return false;
 	if(findEdge(first, second) != NULL)
 		return false;
 	if(first->is(Node::TypeInput) && second->is(Node::TypeInput))
@@ -249,9 +273,19 @@ void NeuralNetwork::addEdge(Node *node)
 	Node *first = edgeAdd->getFirst();
 	if(!canConnect(first, node))
 		return;
-	Edge *edge = new Edge(first, node, edgeAdd->getWeight());
+	// a conexão com a saída repassa o valor do neurônio, as demais começam
+	// com peso aleatório
+	double weight = node->is(Node::TypeOutput) ? 1 : randomWeight();
+	Edge *edge = new Edge(first, node, weight);
 	edges.push_back(edge);
 	modified = true;
+}
+
+double NeuralNetwork::randomWeight()
+{
+	// entre -1 e 1 com 2 casas
+	std::uniform_int_distribution<int> distribution(-100, 100);
+	return distribution(random) / 100.0;
 }
 
 void NeuralNetwork::selectNode(Node *node)
@@ -338,14 +372,130 @@ void NeuralNetwork::clear()
 	neurons.clear();
 	edgeAdd->setFirst(NULL);
 	nodeMoving = NULL;
+	nodeToggle = NULL;
 	bDown = false;
 	bMoving = false;
 	actionState = ActionNone;
 }
 
+void NeuralNetwork::clearChanged()
+{
+	std::vector<Edge *>::iterator ite;
+	for(ite = edges.begin(); ite != edges.end(); ite++)
+		(*ite)->setChanged(false);
+}
+
 void NeuralNetwork::notifyDataChanged()
 {
 	modified = true;
+	if(!running)
+		return;
+	clearChanged();
+	execution.execute();
+}
+
+void NeuralNetwork::runMouseDown(int x, int y)
+{
+	nodeToggle = NULL;
+	Node *node = neuronAt(x, y);
+	if(node == NULL)
+	{
+		// valor ao lado da entrada ou alvo da saída
+		node = valueAt(x, y);
+		if(node != NULL)
+			return toggle(node);
+		selectNode(NULL);
+		selectEdge(edgeAt(x, y));
+		return;
+	}
+	// entradas e saídas alternam o valor, neurônios são selecionados
+	if(node->is(Node::TypeNeuron))
+	{
+		selectEdge(NULL);
+		selectNode(node);
+	}
+	else
+		nodeToggle = node;
+	bMoving = true;
+	nodeMoving = node;
+	this->x = node->getPosition().x;
+	this->y = node->getPosition().y;
+	downX = pressX = x;
+	downY = pressY = y;
+	bDown = true;
+}
+
+void NeuralNetwork::toggle(Node *node)
+{
+	if(node->is(Node::TypeInput))
+		((InputNode*)node)->toggleValue();
+	else if(node->is(Node::TypeOutput))
+		((OutputNode*)node)->toggleTarget();
+	clearChanged();
+	execution.execute();
+}
+
+bool NeuralNetwork::mouseDoubleClick(int x, int y)
+{
+	Node *node = neuronAt(x, y);
+	Edge *edge = node == NULL ? edgeAt(x, y) : NULL;
+	if((node == NULL || !node->is(Node::TypeNeuron)) && edge == NULL)
+		return false;
+	actionState = ActionNone;
+	nodeToggle = NULL;
+	bMoving = false;
+	bDown = false;
+	selectNode(node);
+	selectEdge(edge);
+	return true;
+}
+
+void NeuralNetwork::setRunning(bool running)
+{
+	this->running = running;
+	actionState = ActionNone;
+	nodeToggle = NULL;
+	clearChanged();
+	if(running)
+		execution.execute();
+}
+
+bool NeuralNetwork::isRunning()
+{
+	return running;
+}
+
+Execution::TrainResult NeuralNetwork::train()
+{
+	Execution::TrainResult result = execution.train();
+	if(result.iterations > 0)
+		modified = true;
+	return result;
+}
+
+bool NeuralNetwork::isAdding()
+{
+	return actionState == ActionAdd;
+}
+
+bool NeuralNetwork::isConnecting()
+{
+	return actionState == ActionConnect;
+}
+
+bool NeuralNetwork::hasCycle()
+{
+	return execution.hasCycle();
+}
+
+double NeuralNetwork::getError()
+{
+	return execution.getError();
+}
+
+bool NeuralNetwork::isOnTarget()
+{
+	return execution.isOnTarget();
 }
 
 bool NeuralNetwork::isModified()
@@ -489,4 +639,6 @@ void NeuralNetwork::loadFromFile(const std::string& fileName)
 			edges.push_back(new Edge(first, second, links[e].weight));
 	}
 	modified = false;
+	if(running)
+		execution.execute();
 }

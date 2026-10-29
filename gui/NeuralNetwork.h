@@ -1,10 +1,13 @@
 #ifndef _NEURALNETWORK_H_
 #define _NEURALNETWORK_H_
 #include <raylib.h>
+#include <random>
+#include <stdlib.h>
 #include <string>
 #include <vector>
 #include "Node.h"
 #include "Edge.h"
+#include "Execution.h"
 #include "InputNode.h"
 #include "NeuronNode.h"
 #include "OutputNode.h"
@@ -32,6 +35,13 @@ private:
 	Node *nodeSelected;
 	Edge * edgeSelected;
 	bool modified;
+	// modo de execução: as entradas e as saídas alternam entre 0 e 1 ao clicar
+	bool running;
+	// entrada ou saída que alterna o valor se o botão for solto sem arrastar
+	Node *nodeToggle;
+	int pressX, pressY;
+	Execution execution;
+	std::mt19937 random;
 private:
 	enum ActionState
 	{
@@ -49,11 +59,16 @@ private:
 	void updateAddNeuron(int x, int y);
 	void updateAddEdge(int x, int y);
 	Node *neuronAt(int x, int y);
+	Node *valueAt(int x, int y);
 	Edge* findEdge(Node* first, Node* second);
 	Edge* edgeAt(int x, int y);
 	bool canConnect(Node* first, Node* second);
 	void clear();
+	void clearChanged();
 	void draw();
+	void toggle(Node *node);
+	double randomWeight();
+	void runMouseDown(int x, int y);
 public:
 	void keyDown(int key)
 	{
@@ -69,7 +84,7 @@ public:
 			}
 		}
 		// no teclado do Mac a tecla delete é o backspace
-		else if(key == KEY_DELETE || key == KEY_BACKSPACE)
+		else if((key == KEY_DELETE || key == KEY_BACKSPACE) && !running)
 		{
 			if(nodeSelected != NULL)
 			{
@@ -125,6 +140,8 @@ public:
 	{
 		if (button == MOUSE_BUTTON_LEFT)
 		{
+			if(running)
+				return runMouseDown(x, y);
 			if(actionState == ActionAdd)
 			{
 				addNeuron(x, y);
@@ -168,10 +185,21 @@ public:
 	{
 		if (button == MOUSE_BUTTON_LEFT)
 		{
+			// um clique sem arrastar alterna o valor da entrada ou da saída
+			if(nodeToggle != NULL && abs(x - pressX) <= 3 && abs(y - pressY) <= 3)
+				toggle(nodeToggle);
+			nodeToggle = NULL;
 			bMoving = false;
 			bDown = false;
 		}
 	}
+
+	/**
+	 * Clique duplo no ponto: encerra a ação iniciada pelo primeiro clique e
+	 * seleciona o neurônio ou a conexão sob o ponto. Retorna true se há algo
+	 * para alterar.
+	 */
+	bool mouseDoubleClick(int x, int y);
 	void mouseMove(int x, int y)
 	{
 		if(actionState == ActionAdd)
@@ -237,6 +265,30 @@ public:
 	bool isModified();
 	Edge* getSelectedEdge();
 	Node* getSelectedNode();
+
+	/**
+	 * Entra ou sai do modo de execução
+	 */
+	void setRunning(bool running);
+	bool isRunning();
+
+	/**
+	 * Treina com os valores atuais das entradas e os alvos das saídas
+	 */
+	Execution::TrainResult train();
+
+	/**
+	 * Indica se está posicionando um nó novo
+	 */
+	bool isAdding();
+
+	/**
+	 * Indica se aguarda o clique no nó de destino de uma conexão
+	 */
+	bool isConnecting();
+	bool hasCycle();
+	double getError();
+	bool isOnTarget();
 };
 
 #endif /* _NEURALNETWORK_H_ */

@@ -2,6 +2,7 @@
 #define _NODE_H_
 #include <raylib.h>
 #include <math.h>
+#include <string>
 
 struct Point
 {
@@ -18,6 +19,18 @@ private:
 	Point p;
 	Texture2D img;
 	bool selected;
+	double value;
+protected:
+	/**
+	 * Tamanho da caixa de drawLabel para o texto informado
+	 */
+	static Vector2 measureLabel(const std::string& text, float fontSize);
+
+	/**
+	 * Desenha o texto centralizado numa caixa de cantos arredondados
+	 */
+	static void drawLabel(Rectangle box, const std::string& text, float fontSize, Color fill,
+		Color border, Color color);
 public:
 	/**
 	 * Tipo do nó, mesmos valores gravados no arquivo
@@ -63,6 +76,20 @@ public:
 		return img;
 	}
 
+	/**
+	 * Valor do nó na execução: o informado na entrada ou o calculado no
+	 * neurônio e na saída
+	 */
+	inline void setValue(double value)
+	{
+		this->value = value;
+	}
+
+	inline double getValue()
+	{
+		return value;
+	}
+
 	inline bool is(Type type)
 	{
 		return getType() == type;
@@ -73,6 +100,24 @@ public:
 	virtual void draw();
 
 	virtual bool IsIn(const Point& p) = 0;
+
+	/**
+	 * Desenha o valor do nó durante a execução
+	 */
+	virtual void drawValue() {}
+
+	/**
+	 * Indica se o ponto está sobre um valor clicável desenhado por drawValue
+	 */
+	virtual bool IsInValue(const Point& p)
+	{
+		return false;
+	}
+
+	/**
+	 * Número com vírgula decimal, no máximo digits casas e sem zeros à direita
+	 */
+	static std::string formatNumber(double value, int digits);
 };
 
 #endif

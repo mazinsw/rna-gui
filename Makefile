@@ -81,7 +81,8 @@ CORE_SRCS := core/Signal.cpp core/Neuron.cpp training/Training.cpp
 CLI_SRCS  := $(CORE_SRCS) test/test_all.cpp test/test_input.cpp test/test_training.cpp
 GUI_SRCS  := gui/main.cpp gui/ClayRaylib.cpp gui/Widgets.cpp gui/Input.cpp \
              gui/Platform.cpp gui/Resources.cpp gui/Node.cpp gui/Edge.cpp \
-             gui/InputNode.cpp gui/NeuronNode.cpp gui/OutputNode.cpp gui/NeuralNetwork.cpp
+             gui/InputNode.cpp gui/NeuronNode.cpp gui/OutputNode.cpp gui/NeuralNetwork.cpp \
+             gui/Execution.cpp
 
 IMAGES    := neuron input output funcao_linear funcao_degree funcao_bipolar \
              funcao_logistic funcao_hiperbolic

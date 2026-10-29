@@ -34,6 +34,11 @@ namespace input
 	 * O botão está pressionado agora
 	 */
 	bool mouseDown();
+
+	/**
+	 * O segundo clique de um clique duplo ocorreu desde o quadro anterior
+	 */
+	bool mouseDoubleClicked();
 }
 
 #endif /* _INPUT_H_ */

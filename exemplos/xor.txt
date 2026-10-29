@@ -3,23 +3,23 @@
 2 degrau
 3 degrau
 
-entrada  1  0.5 1
+entrada  1 -0.5 1
 entrada  2  1.0 1
 entrada  3  1.0 1
-entrada  1  1.5 2
+entrada  1 -1.5 2
 entrada  2  1.0 2
 entrada  3  1.0 2
-entrada  1  0.5 3
+entrada  1 -0.5 3
 conectar 1  1.0 3
 conectar 2 -1.0 3
 saida    3
 
 amostras 4
--1.0 0.0 0.0
+1.0 0.0 0.0
 saidas 0.0
--1.0 0.0 1.0
+1.0 0.0 1.0
 saidas 1.0
--1.0 1.0 0.0
+1.0 1.0 0.0
 saidas 1.0
--1.0 1.0 1.0
+1.0 1.0 1.0
 saidas 0.0

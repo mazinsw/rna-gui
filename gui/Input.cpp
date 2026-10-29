@@ -1,6 +1,11 @@
 #include "Input.h"
 #include <raylib.h>
+#include <math.h>
 #include <stddef.h>
+
+// intervalo e distância máximos entre os cliques de um clique duplo
+#define DOUBLE_CLICK_TIME 0.5
+#define DOUBLE_CLICK_DISTANCE 4
 
 // o raylib usa o GLFW mas não distribui seus headers. Fora do Windows as
 // referências são fracas: um raylib dinâmico pode não exportar o GLFW. No
@@ -26,15 +31,39 @@ namespace input
 	static GLFWmousebuttonfun raylibCallback = NULL;
 	static int pendingPresses = 0;
 	static int pendingReleases = 0;
+	static bool pendingDoubleClick = false;
 	static bool pressed = false;
 	static bool released = false;
+	static bool doubleClicked = false;
+	static double lastPressTime = -1;
+	static Vector2 lastPressPosition = { 0, 0 };
+
+	/**
+	 * Registra um clique e verifica se ele completa um clique duplo
+	 */
+	static void registerPress()
+	{
+		double now = GetTime();
+		Vector2 position = GetMousePosition();
+		bool doubleClick = lastPressTime >= 0 && now - lastPressTime <= DOUBLE_CLICK_TIME &&
+			fabsf(position.x - lastPressPosition.x) <= DOUBLE_CLICK_DISTANCE &&
+			fabsf(position.y - lastPressPosition.y) <= DOUBLE_CLICK_DISTANCE;
+		if(doubleClick)
+			pendingDoubleClick = true;
+		// o terceiro clique começa outra sequência
+		lastPressTime = doubleClick ? -1 : now;
+		lastPressPosition = position;
+	}
 
 	static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 	{
 		if(button == MOUSE_BUTTON_LEFT)
 		{
 			if(action == 1) // GLFW_PRESS
+			{
 				pendingPresses++;
+				registerPress();
+			}
 			else if(action == 0) // GLFW_RELEASE
 				pendingReleases++;
 		}
@@ -64,12 +93,18 @@ namespace input
 		{
 			pressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
 			released = IsMouseButtonReleased(MOUSE_BUTTON_LEFT);
-			return;
+			if(pressed)
+				registerPress();
 		}
-		pressed = pendingPresses > 0;
-		released = pendingReleases > 0;
-		pendingPresses = 0;
-		pendingReleases = 0;
+		else
+		{
+			pressed = pendingPresses > 0;
+			released = pendingReleases > 0;
+			pendingPresses = 0;
+			pendingReleases = 0;
+		}
+		doubleClicked = pendingDoubleClick;
+		pendingDoubleClick = false;
 	}
 
 	bool mousePressed()
@@ -85,5 +120,10 @@ namespace input
 	bool mouseDown()
 	{
 		return IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+	}
+
+	bool mouseDoubleClicked()
+	{
+		return doubleClicked;
 	}
 }

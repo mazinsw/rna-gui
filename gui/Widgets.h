@@ -25,6 +25,31 @@ namespace ui
 	const Clay_Color HighlightTextColor = { 255, 255, 255, 255 };
 	const Clay_Color DialogColor = { 246, 246, 246, 255 };
 	const Clay_Color OverlayColor = { 0, 0, 0, 70 };
+	const Clay_Color PrimaryHoverColor = { 0, 108, 230, 255 };
+	const Clay_Color PrimaryPressedColor = { 0, 94, 200, 255 };
+	const Clay_Color AccentTextColor = { 0, 96, 200, 255 };
+	const Clay_Color StatusTextColor = { 80, 80, 80, 255 };
+	const Clay_Color SuccessColor = { 21, 128, 61, 255 };
+	const Clay_Color WarningColor = { 194, 65, 12, 255 };
+
+	/**
+	 * Aparência do botão
+	 */
+	enum ButtonStyle
+	{
+		// fundo branco
+		ButtonDefault,
+		// fundo azul, para um botão ligado
+		ButtonPrimary,
+		// borda e texto azuis, para a ação principal do momento
+		ButtonAccent
+	};
+
+	inline Color toColor(Clay_Color color)
+	{
+		return Color{ (unsigned char)color.r, (unsigned char)color.g, (unsigned char)color.b,
+			(unsigned char)color.a };
+	}
 
 	/**
 	 * Finaliza o quadro, chamar após Clay_EndLayout
@@ -40,7 +65,8 @@ namespace ui
 	/**
 	 * Botão, retorna true quando clicado
 	 */
-	bool button(Clay_ElementId id, Clay_String text, bool enabled = true, float minWidth = 0);
+	bool button(Clay_ElementId id, Clay_String text, bool enabled = true, float minWidth = 0,
+		ButtonStyle style = ButtonDefault);
 
 	void label(Clay_String text, uint16_t fontSize = FontSize);
 
