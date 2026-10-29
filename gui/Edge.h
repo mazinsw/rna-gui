@@ -2,6 +2,8 @@
 #define _EDGE_H_
 #include "Node.h"
 #include <algorithm>
+#include <stdio.h>
+#include <string>
 
 class Edge
 {
@@ -10,13 +12,14 @@ private:
 	Node* second;
 	double weight;
 	bool selected;
-	Size sz;
-	String weightStr;
+	Vector2 sz;
+	std::string weightStr;
 protected:
-	
+
 public:
 	Edge(Node* first, Node* second, double weight);
-	
+	virtual ~Edge() {}
+
 	inline void setFirst(Node* first)
 	{
 		this->first = first;
@@ -27,11 +30,13 @@ public:
 	}
 	inline void setWeight(double weight)
 	{
+		char str[64];
 		this->weight = weight;
-		weightStr = trimZeroes(formatString(_T("%lf"), getWeight()));
-		std::replace(weightStr.begin(), weightStr.end(), _T('.'), _T(','));
+		snprintf(str, sizeof(str), "%lf", getWeight());
+		weightStr = trimZeroes(str);
+		std::replace(weightStr.begin(), weightStr.end(), '.', ',');
 	}
-	
+
 	inline Node* getFirst()
 	{
 		return this->first;
@@ -44,19 +49,27 @@ public:
 	{
 		return this->weight;
 	}
-	
+
+	/**
+	 * Peso formatado com vírgula decimal e sem zeros à direita
+	 */
+	inline const std::string& getWeightString()
+	{
+		return weightStr;
+	}
+
 	inline void setSelected(bool selected)
 	{
 		this->selected = selected;
 	}
-	
-	inline bool isSelected() 
+
+	inline bool isSelected()
 	{
 		return selected;
 	}
-	void draw(Graphics* g);
+	void draw();
 	virtual bool IsIn(const Point& p);
-	static String trimZeroes(const String& s);
+	static std::string trimZeroes(const std::string& s);
 };
 
 #endif /* _EDGE_H_ */

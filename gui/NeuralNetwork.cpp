@@ -1,29 +1,96 @@
 #include "NeuralNetwork.h"
-#include "scaling.h"
+#include "Resources.h"
+#include <fstream>
 #include <map>
+#include <stdexcept>
+#include <stdint.h>
 #include <string.h>
 #define RN_SIGN "1.1"
 
+/*
+ * Formato do arquivo, little-endian com tamanhos fixos para ser o mesmo em
+ * qualquer plataforma (compatível com o gravado pela versão Windows 32 bits):
+ * sign[3] neuronCount:u32 edgeCount:u32
+ * neuronCount x (type:i32 function:i32 x:i32 y:i32)
+ * edgeCount x (first:i32 second:i32 weight:f64)
+ */
+
+static void writeUInt32(std::ofstream& file, uint32_t value)
+{
+	unsigned char bytes[4];
+	for(int i = 0; i < 4; i++)
+		bytes[i] = (unsigned char)(value >> (i * 8));
+	file.write((const char*)bytes, sizeof(bytes));
+}
+
+static void writeInt32(std::ofstream& file, int32_t value)
+{
+	writeUInt32(file, (uint32_t)value);
+}
+
+static void writeDouble(std::ofstream& file, double value)
+{
+	uint64_t bits;
+	unsigned char bytes[8];
+	memcpy(&bits, &value, sizeof(bits));
+	for(int i = 0; i < 8; i++)
+		bytes[i] = (unsigned char)(bits >> (i * 8));
+	file.write((const char*)bytes, sizeof(bytes));
+}
+
+static void readBytes(std::ifstream& file, unsigned char* bytes, size_t count)
+{
+	file.read((char*)bytes, count);
+	if(!file)
+		throw std::runtime_error("Unexpected end of file.");
+}
+
+static uint32_t readUInt32(std::ifstream& file)
+{
+	unsigned char bytes[4];
+	uint32_t value = 0;
+	readBytes(file, bytes, sizeof(bytes));
+	for(int i = 0; i < 4; i++)
+		value |= (uint32_t)bytes[i] << (i * 8);
+	return value;
+}
+
+static int32_t readInt32(std::ifstream& file)
+{
+	return (int32_t)readUInt32(file);
+}
+
+static double readDouble(std::ifstream& file)
+{
+	unsigned char bytes[8];
+	uint64_t bits = 0;
+	double value;
+	readBytes(file, bytes, sizeof(bytes));
+	for(int i = 0; i < 8; i++)
+		bits |= (uint64_t)bytes[i] << (i * 8);
+	memcpy(&value, &bits, sizeof(value));
+	return value;
+}
+
 NeuralNetwork::NeuralNetwork()
 {
-	neuronImg = new Image(_T(":neuron:"));
-	inputImg = new Image(_T(":input:"));
-	outputImg = new Image(_T(":output:"));
-	funcImgs.push_back(new Image(_T(":funcao_linear:")));
-	funcImgs.push_back(new Image(_T(":funcao_degree:")));
-	funcImgs.push_back(new Image(_T(":funcao_bipolar:")));
-	funcImgs.push_back(new Image(_T(":funcao_logistic:")));
-	funcImgs.push_back(new Image(_T(":funcao_hiperbolic:")));
-	setClassName(_T("NeuralNetworkPanel"));
+	neuronImg = loadTextureResource("neuron");
+	inputImg = loadTextureResource("input");
+	outputImg = loadTextureResource("output");
+	funcImgs.push_back(loadTextureResource("funcao_linear"));
+	funcImgs.push_back(loadTextureResource("funcao_degree"));
+	funcImgs.push_back(loadTextureResource("funcao_bipolar"));
+	funcImgs.push_back(loadTextureResource("funcao_logistic"));
+	funcImgs.push_back(loadTextureResource("funcao_hiperbolic"));
 	bDown = false;
 	bMoving = false;
-	x = y = 0;
+	x = y = downX = downY = 0;
+	nodeMoving = NULL;
 	nodeSelected = NULL;
 	edgeSelected = NULL;
 	nodeAdd = new NeuronNode(neuronImg, funcImgs);
 	edgeAdd = new Edge(NULL, nodeAdd, 0);
 	actionState = ActionNone;
-	setOwnerDraw(true);
 }
 
 NeuralNetwork::~NeuralNetwork()
@@ -34,13 +101,14 @@ NeuralNetwork::~NeuralNetwork()
 	std::vector<Edge *>::iterator ite;
 	for(ite = edges.begin(); ite != edges.end(); ite++)
 		delete *ite;
-	std::vector<Image *>::iterator itm;
+	std::vector<Texture2D>::iterator itm;
 	for(itm = funcImgs.begin(); itm != funcImgs.end(); itm++)
-		delete *itm;
+		UnloadTexture(*itm);
 	delete edgeAdd;
 	delete nodeAdd;
-	delete inputImg;
-	delete neuronImg;
+	UnloadTexture(outputImg);
+	UnloadTexture(inputImg);
+	UnloadTexture(neuronImg);
 }
 
 void NeuralNetwork::addNeuron()
@@ -49,7 +117,6 @@ void NeuralNetwork::addNeuron()
 	delete nodeAdd;
 	nodeAdd = new NeuronNode(neuronImg, funcImgs);
 	edgeAdd->setSecond(nodeAdd);
-	invalidate();
 }
 
 void NeuralNetwork::addInput()
@@ -58,7 +125,6 @@ void NeuralNetwork::addInput()
 	delete nodeAdd;
 	nodeAdd = new InputNode(inputImg);
 	edgeAdd->setSecond(nodeAdd);
-	invalidate();
 }
 
 void NeuralNetwork::addOutput()
@@ -67,7 +133,6 @@ void NeuralNetwork::addOutput()
 	delete nodeAdd;
 	nodeAdd = new OutputNode(outputImg);
 	edgeAdd->setSecond(nodeAdd);
-	invalidate();
 }
 
 void NeuralNetwork::addNeuron(int x, int y)
@@ -77,32 +142,43 @@ void NeuralNetwork::addNeuron(int x, int y)
 	neurons.push_back(node);
 	nodeAdd = new NeuronNode(neuronImg, funcImgs);
 	edgeAdd->setSecond(nodeAdd);
-	invalidate();
 }
 
-void NeuralNetwork::draw(Graphics *g)
+void NeuralNetwork::paint(Rectangle bounds)
 {
-	Graphics2D *g2d = (Graphics2D *)g;
-	g2d->setSmoothingMode(SmoothingMode::AntiAlias8x8);
+	DrawRectangleRec(bounds, WHITE);
+	DrawRectangleLinesEx(bounds, 1, GRAY);
+	BeginScissorMode((int)bounds.x + 1, (int)bounds.y + 1, (int)bounds.width - 2,
+		(int)bounds.height - 2);
+	// desenha com a origem no canto da área de edição
+	Camera2D camera = { { bounds.x, bounds.y }, { 0, 0 }, 0, 1 };
+	BeginMode2D(camera);
+	draw();
+	EndMode2D();
+	EndScissorMode();
+}
+
+void NeuralNetwork::draw()
+{
 	std::vector<Edge *>::iterator ite;
 	for(ite = edges.begin(); ite != edges.end(); ite++)
 	{
 		Edge *edge = *ite;
-		edge->draw(g);
+		edge->draw();
 	}
 	if(!bMoving && actionState == ActionConnect)
 	{
-		edgeAdd->draw(g);
+		edgeAdd->draw();
 	}
 	std::vector<Node *>::iterator it;
 	for(it = neurons.begin(); it != neurons.end(); it++)
 	{
 		Node *node = *it;
-		node->draw(g);
+		node->draw();
 	}
 	if(actionState == ActionAdd)
 	{
-		nodeAdd->draw(g);
+		nodeAdd->draw();
 	}
 }
 
@@ -122,13 +198,11 @@ Node *NeuralNetwork::neuronAt(int x, int y)
 void NeuralNetwork::updateAddNeuron(int x, int y)
 {
 	nodeAdd->setPosition(x, y);
-	invalidate();
 }
 
 void NeuralNetwork::updateAddEdge(int x, int y)
 {
 	nodeAdd->setPosition(x, y);
-	invalidate();
 }
 
 Edge *NeuralNetwork::findEdge(Node *first, Node *second)
@@ -161,17 +235,17 @@ void NeuralNetwork::addEdge(Node *node)
 	Edge *edge = findEdge(edgeAdd->getFirst(), node);
 	if(edge != NULL)
 		return;
-	if(edgeAdd->getFirst()->is(_T("InputNode")) && node->is(_T("InputNode")))
+	Node *first = edgeAdd->getFirst();
+	if(first->is(Node::TypeInput) && node->is(Node::TypeInput))
 		return;
-	if(edgeAdd->getFirst()->is(_T("OutputNode")) && node->is(_T("OutputNode")))
+	if(first->is(Node::TypeOutput) && node->is(Node::TypeOutput))
 		return;
-	if(edgeAdd->getFirst()->is(_T("OutputNode")) && node->is(_T("InputNode")))
+	if(first->is(Node::TypeOutput) && node->is(Node::TypeInput))
 		return;
-	if(edgeAdd->getFirst()->is(_T("InputNode")) && node->is(_T("OutputNode")))
+	if(first->is(Node::TypeInput) && node->is(Node::TypeOutput))
 		return;
-	edge = new Edge(edgeAdd->getFirst(), node, edgeAdd->getWeight());
+	edge = new Edge(first, node, edgeAdd->getWeight());
 	edges.push_back(edge);
-	invalidate();
 }
 
 void NeuralNetwork::selectNode(Node *node)
@@ -179,15 +253,11 @@ void NeuralNetwork::selectNode(Node *node)
 	if(nodeSelected == node)
 		return;
 	if(nodeSelected != NULL)
-	{
 		nodeSelected->setSelected(false);
-		emitNodeSelected(this, nodeSelected, false);
-	}
 	nodeSelected = node;
 	if(nodeSelected == NULL)
 		return;
 	nodeSelected->setSelected(true);
-	emitNodeSelected(this, nodeSelected, true);
 }
 
 void NeuralNetwork::selectEdge(Edge* edge)
@@ -195,15 +265,11 @@ void NeuralNetwork::selectEdge(Edge* edge)
 	if(edgeSelected == edge)
 		return;
 	if(edgeSelected != NULL)
-	{
 		edgeSelected->setSelected(false);
-		emitEdgeSelected(this, edgeSelected, false);
-	}
 	edgeSelected = edge;
 	if(edgeSelected == NULL)
 		return;
 	edgeSelected->setSelected(true);
-	emitEdgeSelected(this, edgeSelected, true);
 }
 
 
@@ -233,7 +299,6 @@ void NeuralNetwork::deleteNode(Node *node)
 		break;
 	}
 	actionState = ActionNone;
-	invalidate();
 }
 
 void NeuralNetwork::deleteEdge(Edge* edge)
@@ -249,16 +314,6 @@ void NeuralNetwork::deleteEdge(Edge* edge)
 		break;
 	}
 	actionState = ActionNone;
-	invalidate();
-}
-
-void NeuralNetwork::getClassStyle(unsigned int& style)
-{
-}
-
-void NeuralNetwork::notifyDataChanged()
-{
-	invalidate();
 }
 
 Edge* NeuralNetwork::getSelectedEdge()
@@ -272,110 +327,104 @@ Node* NeuralNetwork::getSelectedNode()
 }
 
 
-void NeuralNetwork::saveToFile(const String& fileName)
+void NeuralNetwork::saveToFile(const std::string& fileName)
 {
-	File * file = new File(fileName, File::WriteOnly);
-	int intVal;
-	size_t sizeVal;
-	double doubleVal;
-	char ver[] = RN_SIGN;
+	std::ofstream file(fileName.c_str(), std::ios::binary | std::ios::trunc);
 	std::vector<Node *>::iterator it;
 	std::vector<Edge *>::iterator ite;
 	std::map<Node*,int> nodeMap;
+	int intVal;
 	int i = 1;
-	
-	file->write(ver, 3); // sign
-	sizeVal = neurons.size();
-	file->write(&sizeVal, sizeof(size_t)); // neuron count
-	sizeVal = edges.size();
-	file->write(&sizeVal, sizeof(size_t)); // edge count
+
+	if(!file)
+		throw std::runtime_error("Unable to create " + fileName + ".");
+	file.write(RN_SIGN, 3); // sign
+	writeUInt32(file, (uint32_t)neurons.size()); // neuron count
+	writeUInt32(file, (uint32_t)edges.size()); // edge count
 	// save each neuron
 	for(it = neurons.begin(); it != neurons.end(); it++)
 	{
 		Node *node = *it;
-		if(node->is(_T("NeuronNode")))
-			intVal = 1;
-		else if(node->is(_T("InputNode")))
-			intVal = 2;
-		else
-			intVal = 3;
-		file->write(&intVal, sizeof(int)); // type, 1 -> Neuron, 2 -> Input, 3 ->Output
-		if(intVal == 1)
+		intVal = node->getType();
+		writeInt32(file, intVal); // type, 1 -> Neuron, 2 -> Input, 3 ->Output
+		if(node->is(Node::TypeNeuron))
 			intVal = ((NeuronNode*)node)->getFunctionType();
 		else
 			intVal = 0;
-		file->write(&intVal, sizeof(int)); // activation function
-		intVal = node->getPosition().x;
-		file->write(&intVal, sizeof(int)); // x position
-		intVal = node->getPosition().y;
-		file->write(&intVal, sizeof(int)); // y position
+		writeInt32(file, intVal); // activation function
+		writeInt32(file, node->getPosition().x); // x position
+		writeInt32(file, node->getPosition().y); // y position
 		nodeMap[node] = i;
 		i++;
 	}
 	for(ite = edges.begin(); ite != edges.end(); ite++)
 	{
 		Edge *edge = *ite;
-		intVal = nodeMap[edge->getFirst()];
-		file->write(&intVal, sizeof(int)); // first node id
-		intVal = nodeMap[edge->getSecond()];
-		file->write(&intVal, sizeof(int)); // second node id
-		doubleVal = edge->getWeight();
-		file->write(&doubleVal, sizeof(double)); // connection weight
+		writeInt32(file, nodeMap[edge->getFirst()]); // first node id
+		writeInt32(file, nodeMap[edge->getSecond()]); // second node id
+		writeDouble(file, edge->getWeight()); // connection weight
 	}
-	delete file;
+	file.close();
+	if(!file)
+		throw std::runtime_error("Unable to write " + fileName + ".");
 }
 
-void NeuralNetwork::loadFromFile(const String& fileName)
+void NeuralNetwork::loadFromFile(const std::string& fileName)
 {
-	File * file = new File(fileName, File::ReadOnly);
-	size_t neuronCount;
-	size_t edgeCount;
+	std::ifstream file(fileName.c_str(), std::ios::binary);
+	uint32_t neuronCount;
+	uint32_t edgeCount;
 	int actFunc;
 	double weight;
-	char ver[4];
-	size_t i;
+	unsigned char ver[4];
+	uint32_t i;
 	int nodeType, xPos, yPos, firstNodeID, secondNodeID;
-	
+
+	if(!file)
+		throw std::runtime_error("Unable to open " + fileName + ".");
 	ver[3] = '\0';
-	file->read(ver, 3); // sign
-	if(strcmp(ver, RN_SIGN) != 0)
+	readBytes(file, ver, 3); // sign
+	if(strcmp((const char*)ver, RN_SIGN) != 0)
 	{
-		delete file;
-		throw Exception(formatString(_T("Version %s not supported, required %s."), 
-			ConvertFromUtf8(ver).c_str(), ConvertFromUtf8(RN_SIGN).c_str()));
+		throw std::runtime_error(std::string("Version ") + (const char*)ver +
+			" not supported, required " RN_SIGN ".");
 	}
-	file->read(&neuronCount, sizeof(size_t)); // neuron count
-	file->read(&edgeCount, sizeof(size_t)); // edge count
+	neuronCount = readUInt32(file); // neuron count
+	edgeCount = readUInt32(file); // edge count
 	// save each neuron
 	for(i = 1; i <= neuronCount; i++)
 	{
 		Node *node;
-		file->read(&nodeType, sizeof(int)); // type, 1 -> Neuron, 2 -> Input, 3 ->Output
-		if(nodeType == 1)
+		nodeType = readInt32(file); // type, 1 -> Neuron, 2 -> Input, 3 ->Output
+		actFunc = readInt32(file); // activation function
+		xPos = readInt32(file); // x position
+		yPos = readInt32(file); // y position
+		if(nodeType == Node::TypeNeuron &&
+			(actFunc < 0 || actFunc >= NeuronNode::FunctionCount))
+			throw std::runtime_error("Invalid activation function.");
+		if(nodeType == Node::TypeNeuron)
 			node = new NeuronNode(neuronImg, funcImgs);
-		else if(nodeType == 2)
+		else if(nodeType == Node::TypeInput)
 			node = new InputNode(inputImg);
 		else
 			node = new OutputNode(outputImg);
-		file->read(&actFunc, sizeof(int)); // activation function
-		file->read(&xPos, sizeof(int)); // x position
-		file->read(&yPos, sizeof(int)); // y position
 		delete nodeAdd;
 		edgeAdd->setSecond(NULL);
-		if(nodeType == 1)
+		if(nodeType == Node::TypeNeuron)
 			((NeuronNode*)node)->setFunctionType(actFunc);
 		nodeAdd = node;
 		addNeuron(xPos, yPos);
 	}
 	for(i = 0; i < edgeCount; i++)
 	{
-		file->read(&firstNodeID, sizeof(int)); // first node id
-		file->read(&secondNodeID, sizeof(int)); // second node id
-		file->read(&weight, sizeof(double)); // connection weight
+		firstNodeID = readInt32(file); // first node id
+		secondNodeID = readInt32(file); // second node id
+		weight = readDouble(file); // connection weight
+		if(firstNodeID < 1 || firstNodeID > (int)neurons.size() ||
+			secondNodeID < 1 || secondNodeID > (int)neurons.size())
+			throw std::runtime_error("Invalid node id.");
 		edgeAdd->setFirst(neurons[firstNodeID - 1]);
 		edgeAdd->setWeight(weight);
 		addEdge(neurons[secondNodeID - 1]);
 	}
-	delete file;
-	invalidate();
 }

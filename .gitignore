@@ -2,3 +2,5 @@
 *.o
 *.bin
 *.res
+build/
+.DS_Store

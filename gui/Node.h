@@ -1,31 +1,47 @@
 #ifndef _NODE_H_
 #define _NODE_H_
-#include <gui/gui.h>
-#include "ResourceManager.h"
+#include <raylib.h>
 #include <math.h>
 
+struct Point
+{
+	int x, y;
+	Point(int x = 0, int y = 0): x(x), y(y) {}
+};
+
 /**
- * classe responsável por desenhar o neurônio
+ * classe responsÃ¡vel por desenhar o neurÃ´nio
  */
-class Node: public Object
+class Node
 {
 private:
 	Point p;
-	Image* img;
+	Texture2D img;
 	bool selected;
 public:
-	Node(Image* img);
+	/**
+	 * Tipo do nÃ³, mesmos valores gravados no arquivo
+	 */
+	enum Type
+	{
+		TypeNeuron = 1,
+		TypeInput,
+		TypeOutput
+	};
+public:
+	Node(Texture2D img);
+	virtual ~Node() {}
 
 	inline void setSelected(bool selected)
 	{
 		this->selected = selected;
 	}
-	
-	inline bool isSelected() 
+
+	inline bool isSelected()
 	{
 		return selected;
 	}
-	
+
 	inline void setPosition(int x, int y)
 	{
 		this->p.x = x;
@@ -36,18 +52,25 @@ public:
 	{
 		setPosition(p.x, p.y);
 	}
-	
-	inline const Point& getPosition() 
+
+	inline const Point& getPosition()
 	{
 		return p;
 	}
-	
-	inline Image* getImage()
+
+	inline Texture2D getImage()
 	{
 		return img;
 	}
 
-	virtual void draw(Graphics* g);
+	inline bool is(Type type)
+	{
+		return getType() == type;
+	}
+
+	virtual Type getType() = 0;
+
+	virtual void draw();
 
 	virtual bool IsIn(const Point& p) = 0;
 };

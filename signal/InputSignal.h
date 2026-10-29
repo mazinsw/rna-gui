@@ -20,7 +20,7 @@ protected:
 		return value;
 	}
 public:
-	InputSignal(): value(value) {}
+	InputSignal(): value(0) {}
 	
 	InputSignal(double value)
 	{

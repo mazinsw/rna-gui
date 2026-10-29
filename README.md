@@ -1,5 +1,25 @@
 # Redes Neurais
 
+## Compilando no macOS
+
+A interface usa [Clay](https://github.com/nicbarker/clay) (incluído em `third_party/clay`) e [raylib](https://www.raylib.com/).
+Requer as Command Line Tools do Xcode e o raylib:
+
+```
+brew install raylib
+make            # build/NeuralNetwork (interface) e build/RedesNeurais (console)
+make run        # abre a interface
+make app        # gera build/NeuralNetwork.app
+make test       # executa o console com testes_treinamento.txt
+```
+
+A rede desenhada na interface é salva em `~/Library/Application Support/RedesNeurais/NeuralNetWork.bin`,
+no mesmo formato da versão Windows.
+
+No Linux o Makefile procura o raylib com `pkg-config` (não testado).
+
+## Console
+
 ```
 Como usar:
 

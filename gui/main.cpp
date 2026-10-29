@@ -1,146 +1,222 @@
-#include <gui/gui.h>
-#include <stdlib.h>
-#include "scaling.h"
+#include <raylib.h>
+#include <math.h>
+#include <stdio.h>
+#include <filesystem>
+#include <stdexcept>
+#include "ClayRaylib.h"
+#include "Input.h"
+#include "Platform.h"
+#include "Resources.h"
+#include "Widgets.h"
 #include "NeuralNetwork.h"
 #include "EdgeProperties.h"
 #include "NodeProperties.h"
 
-class RedesNeuraisFrame: public Frame
+class RedesNeuraisFrame
 {
 private:
 	NeuralNetwork* neuralNetwork;
-	Button * btnAddNeuronio;
-	Button * btnAddEntrada;
-	Button * btnAddSaida;
-	Button * btnAlterar;
-	Button * btnConfigurar;
-	Button * btnExecutar;
-	Button * btnSalvar;
+	CustomDraw neuralNetworkDraw;
+	EdgePropertyDialog edgePropertyDialog;
+	NodePropertyDialog nodePropertyDialog;
+	MessageDialog messageDialog;
+	std::string fileName;
+	Vector2 mouse;
+	bool minSizeSet;
 private:
-	void onNodeSelected(Object * sender, Node* node, bool selected)
+	static void paintNeuralNetwork(void* context, Rectangle bounds)
 	{
-		btnAlterar->setEnabled(selected);
-	}
-	void onEdgeSelected(Object * sender, Edge* edge, bool selected)
-	{
-		btnAlterar->setEnabled(selected);
-	}	
-	void clicked(Object * sender)
-	{
-		if(sender == btnAddNeuronio)
-		{
-			neuralNetwork->addNeuron();
-			neuralNetwork->grabFocus();
-		}
-		else if(sender == btnAddEntrada)
-		{
-			neuralNetwork->addInput();
-			neuralNetwork->grabFocus();
-		}
-		else if(sender == btnAddSaida)
-		{
-			neuralNetwork->addOutput();
-			neuralNetwork->grabFocus();
-		}
-		else if(sender == btnAlterar)
-		{
-			if(neuralNetwork->getSelectedNode() != NULL)
-				changeNodeProperties(neuralNetwork->getSelectedNode());
-			else if(neuralNetwork->getSelectedEdge() != NULL)
-				changeEdgeProperties(neuralNetwork->getSelectedEdge());
-		}
-		else if(sender == btnSalvar)
-		{
-			neuralNetwork->saveToFile(_T("NeuralNetWork.bin"));
-		}
+		((NeuralNetwork*)context)->paint(bounds);
 	}
 	void changeNodeProperties(Node* node)
 	{
-		if(!node->is(_T("NeuronNode")))
+		if(!node->is(Node::TypeNeuron))
 			return;
-		NodePropertyDialog * nodePropertyDialog = new NodePropertyDialog((NeuronNode*)node);
-		add(nodePropertyDialog);
-		nodePropertyDialog->setClientSize(300, 150);
-		nodePropertyDialog->setPosition(NULL);
-		nodePropertyDialog->setVisible(true);
-		if(nodePropertyDialog->getResultCode() == 1)
-			neuralNetwork->notifyDataChanged();
-		delete nodePropertyDialog;
+		nodePropertyDialog.show((NeuronNode*)node);
 	}
 	void changeEdgeProperties(Edge* edge)
 	{
-		EdgePropertyDialog * edgePropertyDialog = new EdgePropertyDialog(edge);
-		add(edgePropertyDialog);
-		edgePropertyDialog->setClientSize(300, 150);
-		edgePropertyDialog->setPosition(NULL);
-		edgePropertyDialog->setVisible(true);
-		if(edgePropertyDialog->getResultCode() == 1)
-			neuralNetwork->notifyDataChanged();
-		delete edgePropertyDialog;
+		edgePropertyDialog.show(edge);
 	}
-public:
-	RedesNeuraisFrame(): Frame(_T("Redes Neurais Artificiais"))
+	void salvar()
 	{
-		neuralNetwork = new NeuralNetwork();
-		neuralNetwork->setOnNodeSelected(this, &RedesNeuraisFrame::onNodeSelected);
-		neuralNetwork->setOnEdgeSelected(this, &RedesNeuraisFrame::onEdgeSelected);
-		Panel * gpb = new Panel();
-		BorderLayout layout;
-		layout.add(gpb, BorderLayout::Bottom);
-		layout.setMargin(5, 5, 5);
-		setLayout(&layout);
-		BoxLayout boxLayout(BoxLayout::X_AXIS);
-		boxLayout.setMargin(0, 0, 5);
-		gpb->setLayout(&boxLayout);
-		btnAddNeuronio = new Button(_T("Adicionar Neurônio"));
-		gpb->add(btnAddNeuronio);
-		btnAddNeuronio->setOnClick(this, &RedesNeuraisFrame::clicked);
-		btnAddNeuronio->grabFocus();
-		btnAddEntrada = new Button(_T("Adicionar Entrada"));
-		btnAddEntrada->setOnClick(this, &RedesNeuraisFrame::clicked);
-		gpb->add(btnAddEntrada);
-		btnAddSaida = new Button(_T("Adicionar Saída"));
-		btnAddSaida->setOnClick(this, &RedesNeuraisFrame::clicked);
-		gpb->add(btnAddSaida);
-		btnAlterar = new Button(_T("Alterar"));
-		btnAlterar->setEnabled(false);
-		btnAlterar->setOnClick(this, &RedesNeuraisFrame::clicked);
-		gpb->add(btnAlterar);
-		btnConfigurar = new Button(_T("Configurar dados"));
-		gpb->add(btnConfigurar);
-		btnExecutar = new Button(_T("Executar"));
-		gpb->add(btnExecutar);
-		btnSalvar = new Button(_T("Salvar"));
-		gpb->add(btnSalvar);
-		btnSalvar->setOnClick(this, &RedesNeuraisFrame::clicked);
-		add(neuralNetwork);
-		add(gpb);
-		setClientSize(800, 600);
-		setPosition(NULL);
 		try
 		{
-			neuralNetwork->loadFromFile(_T("NeuralNetWork.bin"));
+			neuralNetwork->saveToFile(fileName);
 		}
-		catch (const Exception& e)
+		catch (const std::exception& e)
 		{
-			Message::warning(_T("Falha na leitura da rede\n") + ConvertFromUtf8(e.what()), _T("Error"));
+			messageDialog.show("Erro", std::string("Falha ao salvar a rede\n") + e.what());
 		}
-		setVisible(true);
+	}
+	/**
+	 * Encaminha teclado e mouse para o diálogo aberto ou para a área de edição
+	 */
+	void update()
+	{
+		Vector2 last = mouse;
+		mouse = GetMousePosition();
+		// diálogo modal: a área de edição não recebe nada neste quadro
+		if(messageDialog.isVisible())
+			return messageDialog.update();
+		if(edgePropertyDialog.isVisible())
+			return edgePropertyDialog.update();
+		if(nodePropertyDialog.isVisible())
+			return nodePropertyDialog.update();
+		const int keys[] = { KEY_ESCAPE, KEY_DELETE, KEY_BACKSPACE, KEY_UP, KEY_DOWN, KEY_LEFT,
+			KEY_RIGHT };
+		for(int key : keys)
+		{
+			if(IsKeyPressed(key) || IsKeyPressedRepeat(key))
+				neuralNetwork->keyDown(key);
+		}
+		Clay_ElementId id = CLAY_ID("NeuralNetwork");
+		Clay_ElementData data = Clay_GetElementData(id);
+		if(!data.found)
+			return;
+		int x = (int)(mouse.x - data.boundingBox.x);
+		int y = (int)(mouse.y - data.boundingBox.y);
+		bool over = Clay_PointerOver(id);
+		bool moved = mouse.x != last.x || mouse.y != last.y;		if(moved && (over || neuralNetwork->isMouseDown()))
+			neuralNetwork->mouseMove(x, y);
+		if(input::mousePressed() && over)
+			neuralNetwork->mouseDown(x, y, MOUSE_BUTTON_LEFT);
+		if(input::mouseReleased() && !input::mouseDown())
+			neuralNetwork->mouseUp(x, y, MOUSE_BUTTON_LEFT);
+	}
+	void layout()
+	{
+		CLAY({ .id = CLAY_ID("Frame"),
+			.layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) },
+				.padding = CLAY_PADDING_ALL(5), .childGap = 5,
+				.layoutDirection = CLAY_TOP_TO_BOTTOM },
+			.backgroundColor = ui::WindowColor })
+		{
+			CLAY({ .id = CLAY_ID("NeuralNetwork"),
+				.layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) } },
+				.custom = { .customData = &neuralNetworkDraw } }) {}
+			CLAY({ .id = CLAY_ID("Buttons"),
+				.layout = { .sizing = { CLAY_SIZING_FIT(0), CLAY_SIZING_FIT(0) },
+					.childGap = 5 } })
+			{
+				if(ui::button(CLAY_ID("AddNeuronio"), CLAY_STRING("Adicionar Neurônio")))
+					neuralNetwork->addNeuron();
+				if(ui::button(CLAY_ID("AddEntrada"), CLAY_STRING("Adicionar Entrada")))
+					neuralNetwork->addInput();
+				if(ui::button(CLAY_ID("AddSaida"), CLAY_STRING("Adicionar Saída")))
+					neuralNetwork->addOutput();
+				bool selected = neuralNetwork->getSelectedNode() != NULL ||
+					neuralNetwork->getSelectedEdge() != NULL;
+				if(ui::button(CLAY_ID("Alterar"), CLAY_STRING("Alterar"), selected))
+				{
+					if(neuralNetwork->getSelectedNode() != NULL)
+						changeNodeProperties(neuralNetwork->getSelectedNode());
+					else if(neuralNetwork->getSelectedEdge() != NULL)
+						changeEdgeProperties(neuralNetwork->getSelectedEdge());
+				}
+				ui::button(CLAY_ID("Configurar"), CLAY_STRING("Configurar dados"));
+				ui::button(CLAY_ID("Executar"), CLAY_STRING("Executar"));
+				if(ui::button(CLAY_ID("Salvar"), CLAY_STRING("Salvar")))
+					salvar();
+			}
+		}
+		if(messageDialog.isVisible())
+			messageDialog.layout();
+		else if(edgePropertyDialog.isVisible())
+			edgePropertyDialog.layout();
+		else if(nodePropertyDialog.isVisible())
+			nodePropertyDialog.layout();
+	}
+	/**
+	 * Impede que a janela fique menor que a barra de botões
+	 */
+	void updateMinSize()
+	{
+		Clay_ElementData data = Clay_GetElementData(CLAY_ID("Buttons"));
+		if(minSizeSet || !data.found)
+			return;
+		int width = (int)ceilf(data.boundingBox.width) + 10;
+		SetWindowMinSize(width, 300);
+		if(GetScreenWidth() < width)
+			SetWindowSize(width, GetScreenHeight());
+		minSizeSet = true;
+	}
+public:
+	RedesNeuraisFrame()
+	{
+		neuralNetwork = new NeuralNetwork();
+		neuralNetworkDraw.draw = paintNeuralNetwork;
+		neuralNetworkDraw.context = neuralNetwork;
+		mouse = GetMousePosition();
+		minSizeSet = false;
+		fileName = getDataFilePath();
+		try
+		{
+			std::error_code error;
+			if(std::filesystem::exists(fileName, error))
+				neuralNetwork->loadFromFile(fileName);
+		}
+		catch (const std::exception& e)
+		{
+			messageDialog.show("Aviso", std::string("Falha na leitura da rede\n") + e.what());
+		}
+	}
+	~RedesNeuraisFrame()
+	{
+		delete neuralNetwork;
+	}
+	void run()
+	{
+		while(!WindowShouldClose())
+		{
+			input::beginFrame();
+			Vector2 position = GetMousePosition();
+			Clay_SetLayoutDimensions(Clay_Dimensions{ (float)GetScreenWidth(),
+				(float)GetScreenHeight() });
+			Clay_SetPointerState(Clay_Vector2{ position.x, position.y }, input::mouseDown());
+			update();
+			Clay_BeginLayout();
+			layout();
+			Clay_RenderCommandArray commands = Clay_EndLayout();
+			ui::endFrame();
+			BeginDrawing();
+			ClearBackground(RAYWHITE);
+			ClayRaylib_Render(commands, getFonts());
+			EndDrawing();
+			updateMinSize();
+		}
 	}
 };
 
 
-int main(int argc, char *argv[])
+int main()
 {
+	SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT |
+		FLAG_VSYNC_HINT);
+	SetTraceLogLevel(LOG_WARNING);
+	InitWindow(800, 600, "Redes Neurais Artificiais");
+	if(!IsWindowReady())
+		return 0xFFFF;
+	// Esc é usado para cancelar ações, não para fechar
+	SetExitKey(KEY_NULL);
+	// só redesenha quando chega algum evento
+	EnableEventWaiting();
+	input::install();
+	int result = 0;
 	try
 	{
+		loadResources();
+		ClayRaylib_Initialize(getFonts());
 		RedesNeuraisFrame f;
-		return f.getResultCode();
+		f.run();
 	}
-	catch (const Exception& e)
+	catch (const std::exception& e)
 	{
-		Message::error(ConvertFromUtf8(e.what()), _T("Error"));
-		return 0xFFFF;
+		fprintf(stderr, "Error: %s\n", e.what());
+		result = 0xFFFF;
 	}
+	ClayRaylib_Shutdown();
+	unloadResources();
+	CloseWindow();
+	return result;
 }
-

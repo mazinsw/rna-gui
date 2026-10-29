@@ -1,8 +1,7 @@
 #include "InputNode.h"
 
-InputNode::InputNode(Image* img): Node(img)
+InputNode::InputNode(Texture2D img): Node(img)
 {
-	setClassName(_T("InputNode"));
 }
 
 bool InputNode::IsIn(const Point& p)
@@ -13,12 +12,9 @@ bool InputNode::IsIn(const Point& p)
 		   p.y >= getPosition().y - mh && p.y <= getPosition().y + mh;
 }
 
-void InputNode::draw(Graphics* g)
+void InputNode::draw()
 {
 	if(isSelected())
-	{
-		g->setColor(Color::ORANGE);
-		g->fillRect(getPosition().x - 14, getPosition().y - 14, 28, 28);		
-	}
-	Node::draw(g);
+		DrawRectangle(getPosition().x - 14, getPosition().y - 14, 28, 28, ORANGE);
+	Node::draw();
 }

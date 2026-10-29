@@ -1,38 +1,39 @@
 #include "Edge.h"
+#include "Resources.h"
 #include <math.h>
+
+#define WEIGHT_FONT_SIZE 13
 
 Edge::Edge(Node *first, Node *second, double weight)
 {
+	sz.x = sz.y = 0;
 	setFirst(first);
 	setSecond(second);
 	setWeight(weight);
 	setSelected(false);
 }
 
-void Edge::draw(Graphics *g)
+void Edge::draw()
 {
 	int x1 = first->getPosition().x;
 	int y1 = first->getPosition().y;
 	int x2 = second->getPosition().x;
 	int y2 = second->getPosition().y;
+	Color color = isSelected() ? ORANGE : BLACK;
+	DrawLineEx(Vector2{ (float)x1, (float)y1 }, Vector2{ (float)x2, (float)y2 }, 1.0f, color);
+	sz = MeasureTextEx(getFont(), weightStr.c_str(), WEIGHT_FONT_SIZE, 0);
+	Rectangle box = { (float)((x1 + x2) / 2 - 6), (float)((y1 + y2) / 2 - 6),
+		sz.x + 12, sz.y + 12 };
+	// cantos com raio 4
+	float roundness = 8 / (box.width < box.height ? box.width : box.height);
 	if(isSelected())
-		g->setColor(Color::ORANGE);
+		color = Color{ 0xF0, 0xF0, 0xF0, 0xFF };
 	else
-		g->setColor(Color::BLACK);
-	g->drawLine(x1, y1, x2, y2);
-	sz = g->getTextSize(weightStr);
-	if(isSelected())
-		g->setColor(Color(0xF0, 0xF0, 0xF0));
-	else
-		g->setColor(Color(0xE0, 0xF0, 0xE0));
-	g->fillRoundRect((x1 + x2) / 2 - 6,
-			  (y1 + y2) / 2 - 6, sz.width + 12, sz.height + 12, 4, 4);
-	g->setColor(Color(0, 127, 255));
-	g->drawRoundRect((x1 + x2) / 2 - 6,
-	              (y1 + y2) / 2 - 6, sz.width + 12, sz.height + 12, 4, 4);
-	g->setColor(Color::BLUE);
-	g->drawString(weightStr, (x1 + x2) / 2,
-	              (y1 + y2) / 2);
+		color = Color{ 0xE0, 0xF0, 0xE0, 0xFF };
+	DrawRectangleRounded(box, roundness, 4, color);
+	DrawRectangleRoundedLinesEx(box, roundness, 4, 1.0f, Color{ 0, 127, 255, 255 });
+	DrawTextEx(getFont(), weightStr.c_str(), Vector2{ (float)((x1 + x2) / 2),
+		(float)((y1 + y2) / 2) }, WEIGHT_FONT_SIZE, 0, Color{ 0, 0, 255, 255 });
 }
 
 bool Edge::IsIn(const Point& p)
@@ -73,24 +74,22 @@ bool Edge::IsIn(const Point& p)
 	}
 	if (fabs(d) < 4)
 		return true;
-	int mw = (sz.width + 12) / 2;
-	int mh = (sz.height + 12) / 2;
+	int mw = (int)(sz.x + 12) / 2;
+	int mh = (int)(sz.y + 12) / 2;
 	x1 = (x1 + x3) / 2 + mw;
 	y1 = (y1 + y3) / 2 + mh;
 	return x2 >= x1 - mw && x2 <= x1 + mw &&
 		   y2 >= y1 - mh && y2 <= y1 + mh;
 }
 
-String Edge::trimZeroes(const String& s)
+std::string Edge::trimZeroes(const std::string& s)
 {
 	size_t c = s.size();
 	while(c > 0 && s[c - 1] == '0')
 		c--;
-	if(c > 0 && (s[c - 1] == _T('.') || s[c - 1] == _T(',')))
+	if(c > 0 && (s[c - 1] == '.' || s[c - 1] == ','))
 		c--;
 	if(c == 0 && s.size() > 0)
 		c = 1;
-	return String(s, 0, c);
+	return std::string(s, 0, c);
 }
-
-

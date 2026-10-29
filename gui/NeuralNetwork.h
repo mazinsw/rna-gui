@@ -1,21 +1,25 @@
 #ifndef _NEURALNETWORK_H_
 #define _NEURALNETWORK_H_
-#include <gui/gui.h>
+#include <raylib.h>
+#include <string>
 #include <vector>
 #include "Node.h"
 #include "Edge.h"
 #include "InputNode.h"
 #include "NeuronNode.h"
 #include "OutputNode.h"
-#include "SelectHandler.h"
 
-class NeuralNetwork: public Control, public SelectHandler
+/**
+ * Área de edição da rede, recebe os eventos de mouse e teclado com
+ * coordenadas relativas ao seu canto superior esquerdo
+ */
+class NeuralNetwork
 {
 private:
-	Image *neuronImg;
-	Image *inputImg;
-	Image *outputImg;
-	std::vector<Image*> funcImgs;
+	Texture2D neuronImg;
+	Texture2D inputImg;
+	Texture2D outputImg;
+	std::vector<Texture2D> funcImgs;
 	std::vector<Node *> neurons;
 	std::vector<Edge *> edges;
 	int x, y, downX, downY;
@@ -46,24 +50,23 @@ private:
 	Node *neuronAt(int x, int y);
 	Edge* findEdge(Node* first, Node* second);
 	Edge* edgeAt(int x, int y);
-protected:
-	virtual void getClassStyle(unsigned int& style);
-	virtual void keyDown(int key, int state)
+	void draw();
+public:
+	void keyDown(int key)
 	{
-		if(key == Key::Escape)
+		if(key == KEY_ESCAPE)
 		{
 			if(actionState == ActionConnect)
 			{
 				actionState = ActionNone;
-				invalidate();
 			}
 			else if(actionState == ActionAdd)
 			{
 				actionState = ActionNone;
-				invalidate();
 			}
 		}
-		else if(key == Key::Delete)
+		// no teclado do Mac a tecla delete é o backspace
+		else if(key == KEY_DELETE || key == KEY_BACKSPACE)
 		{
 			if(nodeSelected != NULL)
 			{
@@ -78,48 +81,43 @@ protected:
 				deleteEdge(saveEdgeSelected);
 			}
 		}
-		else if(key == Key::Up)
+		else if(key == KEY_UP)
 		{
 			if(nodeSelected != NULL)
 			{
-				nodeSelected->setPosition(nodeSelected->getPosition().x, 
+				nodeSelected->setPosition(nodeSelected->getPosition().x,
 					nodeSelected->getPosition().y - 1);
-				invalidate();
 			}
 		}
-		else if(key == Key::Down)
+		else if(key == KEY_DOWN)
 		{
 			if(nodeSelected != NULL)
 			{
-				nodeSelected->setPosition(nodeSelected->getPosition().x, 
+				nodeSelected->setPosition(nodeSelected->getPosition().x,
 					nodeSelected->getPosition().y + 1);
-				invalidate();
 			}
 		}
-		else if(key == Key::Left)
+		else if(key == KEY_LEFT)
 		{
 			if(nodeSelected != NULL)
 			{
-				nodeSelected->setPosition(nodeSelected->getPosition().x - 1, 
+				nodeSelected->setPosition(nodeSelected->getPosition().x - 1,
 					nodeSelected->getPosition().y);
-				invalidate();
 			}
 		}
-		else if(key == Key::Right)
+		else if(key == KEY_RIGHT)
 		{
 			if(nodeSelected != NULL)
 			{
-				nodeSelected->setPosition(nodeSelected->getPosition().x + 1, 
+				nodeSelected->setPosition(nodeSelected->getPosition().x + 1,
 					nodeSelected->getPosition().y);
-				invalidate();
 			}
 		}
 	}
-	virtual void mouseDown(int x, int y, int button)
+	void mouseDown(int x, int y, int button)
 	{
-		if (button == LeftButton)
+		if (button == MOUSE_BUTTON_LEFT)
 		{
-			grabFocus();
 			if(actionState == ActionAdd)
 			{
 				addNeuron(x, y);
@@ -142,7 +140,7 @@ protected:
 				{
 					actionState = ActionConnect;
 					edgeAdd->setFirst(node);
-					nodeAdd->setPosition(x, y);					
+					nodeAdd->setPosition(x, y);
 				}
 				this->x = node->getPosition().x;
 				this->y = node->getPosition().y;
@@ -157,20 +155,17 @@ protected:
 			downX = x;
 			downY = y;
 			bDown = true;
-			setCapture();
-			invalidate();
 		}
 	}
-	virtual void mouseUp(int x, int y, int button)
+	void mouseUp(int x, int y, int button)
 	{
-		if (button == LeftButton)
+		if (button == MOUSE_BUTTON_LEFT)
 		{
 			bMoving = false;
 			bDown = false;
-			releaseCapture();
 		}
 	}
-	virtual void mouseMove(int x, int y)
+	void mouseMove(int x, int y)
 	{
 		if(actionState == ActionAdd)
 		{
@@ -185,29 +180,24 @@ protected:
 			actionState = ActionNone;
 			if(bMoving)
 				nodeMoving->setPosition(this->x, this->y);
-			invalidate();
 		}
 		else if(actionState == ActionConnect)
 		{
 			updateAddEdge(x, y);
 		}
 	}
-	virtual void paint(Graphics *g)
+	/**
+	 * Desenha a área de edição nos limites informados
+	 */
+	void paint(Rectangle bounds);
+
+	/**
+	 * Indica se o botão do mouse foi pressionado na área de edição e ainda
+	 * não foi solto
+	 */
+	inline bool isMouseDown()
 	{
-		g->setBuffered(true);
-		g->setColor(Color::GRAY);
-		Rect r = getClientRect();
-		g->drawRect(r);
-		g->setColor(Color::WHITE);
-		g->fillRect(r.x + 1, r.y + 1, r.width - 2, r.height - 2);
-		draw(g);
-		g->flush();
-	}
-	void draw(Graphics *g);
-	
-	virtual void resized(int width, int height)
-	{
-		invalidate();
+		return bDown;
 	}
 public:
 	NeuralNetwork();
@@ -215,9 +205,8 @@ public:
 	void addNeuron();
 	void addInput();
 	void addOutput();
-	void saveToFile(const String& fileName);
-	void loadFromFile(const String& fileName);
-	void notifyDataChanged();
+	void saveToFile(const std::string& fileName);
+	void loadFromFile(const std::string& fileName);
 	Edge* getSelectedEdge();
 	Node* getSelectedNode();
 };

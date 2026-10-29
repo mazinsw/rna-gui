@@ -1,13 +1,12 @@
 #include "Node.h"
 
-Node::Node(Image* img)
+Node::Node(Texture2D img)
 {
-	setClassName(_T("Node"));
 	this->img = img;
 	setSelected(false);
 }
 
-void Node::draw(Graphics* g)
+void Node::draw()
 {
-	g->drawImage(img, p.x - img->getWidth() / 2, p.y - img->getHeight() / 2);
+	DrawTexture(img, p.x - img.width / 2, p.y - img.height / 2, WHITE);
 }

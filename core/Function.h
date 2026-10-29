@@ -8,6 +8,8 @@ private:
 protected:
 	
 public:
+	virtual ~Function() {}
+
 	/**
 	 * Executa a função e retorna o valor calculado usando a 
 	 * variável x

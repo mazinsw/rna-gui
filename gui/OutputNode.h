@@ -5,13 +5,14 @@
 class OutputNode: public Node
 {
 private:
-	
+
 protected:
-	
+
 public:
-	OutputNode(Image * img);
+	OutputNode(Texture2D img);
+	virtual Type getType() { return TypeOutput; }
 	virtual bool IsIn(const Point& p);
-	virtual void draw(Graphics* g);
+	virtual void draw();
 };
 
 #endif /* _OUTPUTNODE_H_ */

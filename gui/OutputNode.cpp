@@ -1,8 +1,7 @@
 #include "OutputNode.h"
 
-OutputNode::OutputNode(Image* img): Node(img)
+OutputNode::OutputNode(Texture2D img): Node(img)
 {
-	setClassName(_T("OutputNode"));
 }
 
 bool OutputNode::IsIn(const Point& p)
@@ -13,12 +12,9 @@ bool OutputNode::IsIn(const Point& p)
 		   p.y >= getPosition().y - mh && p.y <= getPosition().y + mh;
 }
 
-void OutputNode::draw(Graphics* g)
+void OutputNode::draw()
 {
 	if(isSelected())
-	{
-		g->setColor(Color::ORANGE);
-		g->fillEllipse(getPosition().x - 14, getPosition().y - 14, 28, 28);		
-	}
-	Node::draw(g);
+		DrawCircle(getPosition().x, getPosition().y, 14, ORANGE);
+	Node::draw();
 }
