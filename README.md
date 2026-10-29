@@ -66,6 +66,10 @@ peso 1.
 - Peso e bias: o primeiro clique seleciona e o segundo (ou um clique duplo) edita no lugar. Enter
   ou clicar fora aplica, Esc cancela.
 - Delete exclui o nó ou a conexão selecionada.
+- Arrastar um nó, ou posicionar um novo, alinha o centro dele aos pontos da grade. A menos de 8
+  pixels do x de outro nó ele entra na camada desse nó, e do y, na linha dele, com prioridade sobre
+  a grade. Uma linha azul mostra o alinhamento com outro nó e uma tracejada, com a grade. Segure Alt
+  (Option no Mac) para mover sem alinhar.
 
 Cada neurônio tem um bias (`b`, mostrado acima dele) somado à entrada da função de ativação, que faz
 o papel do limiar negativo. Ele começa aleatório e é treinado junto com os pesos. Para modelar o

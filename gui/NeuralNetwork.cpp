@@ -11,6 +11,11 @@
 #include <string.h>
 #define RN_SIGN "1.1"
 #define RN_SIGN_BIAS "1.2"
+// pontos da grade a cada GRID_SIZE pixels, o primeiro em GRID_OFFSET
+#define GRID_SIZE 20
+#define GRID_OFFSET 10
+// distância em que o nó arrastado entra na camada ou na linha de outro nó
+#define SNAP_DISTANCE 8
 
 /*
  * Formato do arquivo, little-endian com tamanhos fixos para ser o mesmo em
@@ -84,6 +89,8 @@ NeuralNetwork::NeuralNetwork(): execution(neurons, edges), random(std::random_de
 {
 	bDown = false;
 	bMoving = false;
+	dragging = false;
+	snapX = snapY = SnapNone;
 	x = y = downX = downY = 0;
 	nodeMoving = NULL;
 	nodeSelected = NULL;
@@ -113,34 +120,35 @@ NeuronNode *NeuralNetwork::newNeuron()
 	return neuron;
 }
 
-void NeuralNetwork::addNeuron()
+void NeuralNetwork::startAdd(Node *node)
 {
 	actionState = ActionAdd;
 	delete nodeAdd;
-	nodeAdd = newNeuron();
+	nodeAdd = node;
 	edgeAdd->setSecond(nodeAdd);
+	// sem linhas até o mouse posicionar o nó
+	snapX = snapY = SnapNone;
+}
+
+void NeuralNetwork::addNeuron()
+{
+	startAdd(newNeuron());
 }
 
 void NeuralNetwork::addInput()
 {
-	actionState = ActionAdd;
-	delete nodeAdd;
-	nodeAdd = new InputNode();
-	edgeAdd->setSecond(nodeAdd);
+	startAdd(new InputNode());
 }
 
 void NeuralNetwork::addOutput()
 {
-	actionState = ActionAdd;
-	delete nodeAdd;
-	nodeAdd = new OutputNode();
-	edgeAdd->setSecond(nodeAdd);
+	startAdd(new OutputNode());
 }
 
 void NeuralNetwork::addNeuron(int x, int y)
 {
 	Node *node = nodeAdd;
-	node->setPosition(x, y);
+	node->setPosition(snapPosition(node, x, y));
 	neurons.push_back(node);
 	nodeAdd = newNeuron();
 	edgeAdd->setSecond(nodeAdd);
@@ -151,19 +159,101 @@ void NeuralNetwork::paint(Rectangle bounds)
 {
 	DrawRectangleRec(bounds, ui::toColor(ui::CanvasColor));
 	BeginScissorMode((int)bounds.x, (int)bounds.y, (int)bounds.width, (int)bounds.height);
-	// grade de pontos a cada 20 pixels
+	// grade de pontos, onde os nós se alinham
 	Color grid = ui::toColor(ui::GridColor);
-	for(float gy = bounds.y + 10; gy < bounds.y + bounds.height; gy += 20)
+	for(float gy = bounds.y + GRID_OFFSET; gy < bounds.y + bounds.height; gy += GRID_SIZE)
 	{
-		for(float gx = bounds.x + 10; gx < bounds.x + bounds.width; gx += 20)
+		for(float gx = bounds.x + GRID_OFFSET; gx < bounds.x + bounds.width; gx += GRID_SIZE)
 			DrawRectangleRec(Rectangle{ gx - 0.75f, gy - 0.75f, 1.5f, 1.5f }, grid);
 	}
 	// desenha com a origem no canto da área de edição
 	Camera2D camera = { { bounds.x, bounds.y }, { 0, 0 }, 0, 1 };
 	BeginMode2D(camera);
+	drawGuides(bounds.width, bounds.height);
 	draw();
 	EndMode2D();
 	EndScissorMode();
+}
+
+/**
+ * Linha tracejada de 1 pixel
+ */
+static void dashedLine(Vector2 a, Vector2 b, Color color)
+{
+	const float dash = 4, gap = 4;
+	float length = hypotf(b.x - a.x, b.y - a.y);
+	if(length <= 0)
+		return;
+	Vector2 direction = { (b.x - a.x) / length, (b.y - a.y) / length };
+	for(float d = 0; d < length; d += dash + gap)
+	{
+		float end = fminf(d + dash, length);
+		shapes::line(Vector2{ a.x + direction.x * d, a.y + direction.y * d },
+			Vector2{ a.x + direction.x * end, a.y + direction.y * end }, 1, color);
+	}
+}
+
+void NeuralNetwork::drawGuides(float width, float height)
+{
+	Node *node = NULL;
+	if(dragging)
+		node = nodeMoving;
+	else if(actionState == ActionAdd)
+		node = nodeAdd;
+	if(node == NULL)
+		return;
+	// por baixo das conexões e dos nós: azul na camada ou na linha de outro
+	// nó, tracejada no ponto da grade
+	Vector2 center = node->getCenter();
+	Color layer = ui::toColor(ui::AccentColor);
+	Color grid = ui::toColor(ui::FaintColor);
+	Vector2 top = { center.x, 0 }, bottom = { center.x, height };
+	Vector2 left = { 0, center.y }, right = { width, center.y };
+	if(snapX == SnapLayer)
+		shapes::line(top, bottom, 1, layer);
+	else if(snapX == SnapGrid)
+		dashedLine(top, bottom, grid);
+	if(snapY == SnapLayer)
+		shapes::line(left, right, 1, layer);
+	else if(snapY == SnapGrid)
+		dashedLine(left, right, grid);
+}
+
+static int snapToGrid(int value)
+{
+	return (int)floorf((value - GRID_OFFSET) / (float)GRID_SIZE + 0.5f) * GRID_SIZE + GRID_OFFSET;
+}
+
+Point NeuralNetwork::snapPosition(Node *node, int x, int y)
+{
+	snapX = snapY = SnapNone;
+	if(IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT))
+		return Point(x, y);
+	Point p(snapToGrid(x), snapToGrid(y));
+	snapX = snapY = SnapGrid;
+	// a camada mais próxima tem prioridade sobre a grade, para alinhar com nós
+	// que estão fora dela
+	int distanceX = SNAP_DISTANCE + 1, distanceY = SNAP_DISTANCE + 1;
+	std::vector<Node *>::iterator it;
+	for(it = neurons.begin(); it != neurons.end(); it++)
+	{
+		if(*it == node)
+			continue;
+		const Point& other = (*it)->getPosition();
+		if(abs(other.x - x) < distanceX)
+		{
+			distanceX = abs(other.x - x);
+			p.x = other.x;
+			snapX = SnapLayer;
+		}
+		if(abs(other.y - y) < distanceY)
+		{
+			distanceY = abs(other.y - y);
+			p.y = other.y;
+			snapY = SnapLayer;
+		}
+	}
+	return p;
 }
 
 void NeuralNetwork::updateInfluence()
@@ -247,7 +337,7 @@ NeuronNode *NeuralNetwork::biasAt(int x, int y)
 
 void NeuralNetwork::updateAddNeuron(int x, int y)
 {
-	nodeAdd->setPosition(x, y);
+	nodeAdd->setPosition(snapPosition(nodeAdd, x, y));
 }
 
 void NeuralNetwork::updateAddEdge(int x, int y)
@@ -368,7 +458,7 @@ void NeuralNetwork::removeNode(Node *node)
 	if(nodeMoving == node || nodeToggle == node)
 	{
 		nodeMoving = nodeToggle = NULL;
-		bMoving = bDown = false;
+		bMoving = dragging = bDown = false;
 	}
 	if(edgeAdd->getFirst() == node)
 		actionState = ActionNone;
@@ -469,6 +559,7 @@ void NeuralNetwork::clear()
 	nodeToggle = NULL;
 	bDown = false;
 	bMoving = false;
+	dragging = false;
 	actionState = ActionNone;
 	request = Request{ Request::None, NULL, NULL };
 }
@@ -487,6 +578,7 @@ void NeuralNetwork::cancelAction()
 	actionState = ActionNone;
 	nodeToggle = NULL;
 	bMoving = false;
+	dragging = false;
 	bDown = false;
 }
 
@@ -528,6 +620,7 @@ void NeuralNetwork::mouseDown(int x, int y)
 	downX = pressX = x;
 	downY = pressY = y;
 	nodeToggle = NULL;
+	dragging = false;
 	if(actionState == ActionAdd)
 	{
 		addNeuron(x, y);
@@ -658,6 +751,11 @@ Execution::TrainResult NeuralNetwork::train()
 bool NeuralNetwork::isAdding()
 {
 	return actionState == ActionAdd;
+}
+
+bool NeuralNetwork::isMoving()
+{
+	return dragging;
 }
 
 bool NeuralNetwork::isConnecting()

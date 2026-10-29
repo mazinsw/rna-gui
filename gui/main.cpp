@@ -13,6 +13,13 @@
 #include "Widgets.h"
 #include "NeuralNetwork.h"
 
+// tecla que solta o nó do alinhamento ao mover
+#if defined(__APPLE__)
+#define FREE_MOVE_KEY "Option"
+#else
+#define FREE_MOVE_KEY "Alt"
+#endif
+
 class RedesNeuraisFrame
 {
 private:
@@ -229,7 +236,10 @@ private:
 		// os painéis flutuantes capturam o mouse, então fora deles
 		bool over = Clay_PointerOver(id);
 		bool moved = mouse.x != last.x || mouse.y != last.y;
-		if(moved && (over || neuralNetwork->isMouseDown()))
+		// Alt muda o alinhamento do nó arrastado sem o mouse se mover
+		bool alt = IsKeyPressed(KEY_LEFT_ALT) || IsKeyReleased(KEY_LEFT_ALT) ||
+			IsKeyPressed(KEY_RIGHT_ALT) || IsKeyReleased(KEY_RIGHT_ALT);
+		if((moved || alt) && (over || neuralNetwork->isMouseDown()))
 			neuralNetwork->mouseMove(x, y);
 		if(pressed && over)
 			message.clear();
@@ -272,8 +282,11 @@ private:
 			status = "Escolha uma opção do menu. Esc fecha.";
 		else if(running && neuralNetwork->hasCycle())
 			status = "A rede tem um ciclo e não pode ser executada.";
+		else if(neuralNetwork->isMoving())
+			status = "Solte para posicionar. Segure " FREE_MOVE_KEY " para mover sem alinhar.";
 		else if(neuralNetwork->isAdding())
-			status = "Clique na área de edição para posicionar. Esc cancela.";
+			status = "Clique na área de edição para posicionar. Segure " FREE_MOVE_KEY
+				" para não alinhar, Esc cancela.";
 		else if(neuralNetwork->isConnecting())
 			status = "Clique em outro nó para conectar. Esc cancela, Delete exclui o nó.";
 		else if(neuralNetwork->getSelectedEdge() != NULL)

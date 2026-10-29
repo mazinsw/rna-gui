@@ -42,6 +42,10 @@ private:
 	int x, y, downX, downY;
 	bool bDown;
 	bool bMoving;
+	// o nó pressionado já saiu do lugar, um clique com tremor não o move
+	bool dragging;
+	// alinhamento do nó arrastado ou posicionado em cada eixo
+	int snapX, snapY;
 	int actionState;
 	Node *nodeAdd;
 	Edge *edgeAdd;
@@ -66,11 +70,20 @@ private:
 		ActionAdd,
 		ActionConnect
 	};
+	enum Snap
+	{
+		SnapNone = 0,
+		// ponto da grade
+		SnapGrid,
+		// camada (coluna) ou linha de outro nó
+		SnapLayer
+	};
 private:
 	void selectNode(Node *node);
 	void selectEdge(Edge *edge);
 	void selectBias(NeuronNode *neuron);
 	void addNeuron(int x, int y);
+	void startAdd(Node *node);
 	void addEdge(Node *node);
 	void updateAddNeuron(int x, int y);
 	void updateAddEdge(int x, int y);
@@ -82,6 +95,18 @@ private:
 	bool canConnect(Node* first, Node* second);
 	void clear();
 	void draw();
+
+	/**
+	 * Linhas de alinhamento do nó arrastado ou posicionado, nas dimensões da
+	 * área de edição
+	 */
+	void drawGuides(float width, float height);
+
+	/**
+	 * Posição do nó alinhada à camada ou à linha de um nó próximo e, sem
+	 * nenhum, à grade. Com Alt (Option no Mac) fica livre.
+	 */
+	Point snapPosition(Node *node, int x, int y);
 	void toggle(Node *node);
 	double randomWeight();
 	NeuronNode *newNeuron();
@@ -165,6 +190,7 @@ public:
 			toggle(nodeToggle);
 		nodeToggle = NULL;
 		bMoving = false;
+		dragging = false;
 		bDown = false;
 	}
 
@@ -190,11 +216,19 @@ public:
 			this->y += y - downY;
 			downX = x;
 			downY = y;
-			actionState = ActionNone;
-			if(bMoving)
+			if(bMoving && !dragging && (abs(x - pressX) > 3 || abs(y - pressY) > 3))
 			{
-				nodeMoving->setPosition(this->x, this->y);
-				modified = true;
+				dragging = true;
+				actionState = ActionNone;
+			}
+			if(dragging)
+			{
+				Point p = snapPosition(nodeMoving, this->x, this->y);
+				if(p.x != nodeMoving->getPosition().x || p.y != nodeMoving->getPosition().y)
+				{
+					nodeMoving->setPosition(p);
+					modified = true;
+				}
 			}
 		}
 		else if(actionState == ActionConnect)
@@ -279,6 +313,11 @@ public:
 	 * Indica se está posicionando um nó novo
 	 */
 	bool isAdding();
+
+	/**
+	 * Indica se um nó está sendo arrastado
+	 */
+	bool isMoving();
 
 	/**
 	 * Indica se aguarda o clique no nó de destino de uma conexão
