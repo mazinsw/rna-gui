@@ -35,6 +35,7 @@ private:
 	std::string status;
 	std::string errorText;
 	Vector2 mouse;
+	float renderScale;
 private:
 	static void paintNeuralNetwork(void* context, Rectangle bounds)
 	{
@@ -437,6 +438,7 @@ public:
 		legendDraw.draw = paintLegend;
 		legendDraw.context = NULL;
 		mouse = GetMousePosition();
+		renderScale = 0;
 		fileName = getDataFilePath();
 		try
 		{
@@ -462,6 +464,13 @@ public:
 		{
 			input::beginFrame();
 			shapes::beginFrame();
+			// o Clay guarda a largura medida de cada texto, e ela muda com a fonte
+			// de cada escala (janela levada a outra tela ou Retina detectado depois)
+			if(getRenderScale() != renderScale)
+			{
+				renderScale = getRenderScale();
+				Clay_ResetMeasureTextCache();
+			}
 			Vector2 position = GetMousePosition();
 			Clay_SetLayoutDimensions(Clay_Dimensions{ (float)GetScreenWidth(),
 				(float)GetScreenHeight() });
