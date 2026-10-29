@@ -8,23 +8,25 @@
  */
 
 /**
- * Carrega a fonte da interface, chamar após InitWindow
+ * Confere a fonte da interface, chamar após InitWindow
  */
 void loadResources();
 
 /**
- * Libera a fonte da interface
+ * Libera as fontes carregadas
  */
 void unloadResources();
 
 /**
- * Fontes indexadas pelo fontId do Clay
+ * Pixels da tela por unidade de coordenada da janela: 2 no Retina, 1 nas
+ * demais telas
  */
-Font* getFonts();
+float getRenderScale();
 
 /**
- * Fonte padrão da interface
+ * Fonte rasterizada no tamanho informado em pixels da tela, para o texto
+ * ficar nítido sem ser reduzido
  */
-const Font& getFont();
+const Font& getFont(float size);
 
 #endif /* _RESOURCES_H_ */

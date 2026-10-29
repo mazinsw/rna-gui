@@ -58,7 +58,7 @@ void Edge::drawLabel()
 {
 	Vector2 a = first->getCenter(), b = second->getCenter();
 	Vector2 middle = { (a.x + b.x) / 2, (a.y + b.y) / 2 };
-	labelBox = Node::pillBox(middle, weightStr, 12, 20);
+	labelBox = Node::pillBox(middle, weightStr, ui::LabelFontSize, 22);
 	if(isChanged())
 		Node::drawPill(labelBox, ui::toColor(ui::ChangedColor),
 			ui::toColor(ui::ChangedBorderColor));
@@ -67,7 +67,7 @@ void Edge::drawLabel()
 			1.5f);
 	else
 		Node::drawPill(labelBox, WHITE, ui::toColor(ui::PillBorderColor));
-	Node::drawTextCentered(weightStr, middle, 12, ui::toColor(ui::InkColor));
+	Node::drawTextCentered(weightStr, middle, ui::LabelFontSize, ui::toColor(ui::InkColor));
 }
 
 bool Edge::IsInLabel(const Point& p)

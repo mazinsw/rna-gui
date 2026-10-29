@@ -113,7 +113,7 @@ public:
 			offset.y = offset.y > bottom ? bottom : offset.y;
 		}
 		CLAY({ .id = CLAY_ID("Menu"),
-			.layout = { .sizing = { CLAY_SIZING_FIXED(200), CLAY_SIZING_FIT(0) },
+			.layout = { .sizing = { CLAY_SIZING_FIXED(216), CLAY_SIZING_FIT(0) },
 				.padding = CLAY_PADDING_ALL(6), .childGap = 1,
 				.layoutDirection = CLAY_TOP_TO_BOTTOM },
 			.backgroundColor = ui::PanelColor,

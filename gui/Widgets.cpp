@@ -83,7 +83,7 @@ namespace ui
 		else if(hovered)
 			background = HoverColor;
 		CLAY({ .id = id,
-			.layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(34) },
+			.layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(36) },
 				.padding = { 10, 10, 0, 0 }, .childGap = 10,
 				.childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER } },
 			.backgroundColor = background,
@@ -91,7 +91,7 @@ namespace ui
 		{
 			CLAY({ .layout = { .sizing = { CLAY_SIZING_FIXED(18), CLAY_SIZING_FIXED(18) } },
 				.custom = { .customData = icons::custom(icon, toColor(color)) } }) {}
-			CLAY_TEXT(text, textConfig(FontSize, color));
+			CLAY_TEXT(text, textConfig(PanelFontSize, color));
 		}
 		return clicked;
 	}
@@ -109,7 +109,7 @@ namespace ui
 		else if(checked)
 			background = AccentLightColor;
 		CLAY({ .id = id,
-			.layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(30) },
+			.layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(32) },
 				.padding = { 8, 8, 0, 0 }, .childGap = 10,
 				.childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER } },
 			.backgroundColor = background,
@@ -117,7 +117,7 @@ namespace ui
 		{
 			CLAY({ .layout = { .sizing = { CLAY_SIZING_FIXED(30), CLAY_SIZING_FIXED(20) } },
 				.custom = { .customData = icon } }) {}
-			CLAY_TEXT(text, textConfig(FontSize, enabled ? color : FaintColor));
+			CLAY_TEXT(text, textConfig(PanelFontSize, enabled ? color : FaintColor));
 			CLAY({ .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(1) } } }) {}
 			if(checked)
 				CLAY({ .layout = { .sizing = { CLAY_SIZING_FIXED(14), CLAY_SIZING_FIXED(14) } },
@@ -141,7 +141,7 @@ namespace ui
 		CLAY({ .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0) },
 			.padding = { 8, 8, 4, 6 } } })
 		{
-			CLAY_TEXT(text, textConfig(11, MutedColor));
+			CLAY_TEXT(text, textConfig(CaptionFontSize, MutedColor));
 		}
 	}
 
@@ -291,7 +291,7 @@ void TextField::moveCursorTo(float x)
 	{
 		pos = next(pos);
 		std::string prefix(text, 0, pos);
-		float width = MeasureTextEx(getFont(), prefix.c_str(), fontSize, 0).x;
+		float width = MeasureTextEx(getFont(fontSize), prefix.c_str(), fontSize, 0).x;
 		if(fabsf(offset - width) < bestDistance)
 		{
 			best = pos;

@@ -1,41 +1,57 @@
 #include "Resources.h"
+#include <map>
+#include <math.h>
 #include <stdexcept>
 #include <vector>
 // gerado pelo Makefile a partir de res/
 #include "Roboto-Regular.ttf.h"
 
-// tamanho em que a fonte é rasterizada, reduzida com mipmaps ao desenhar
-#define FONT_BASE_SIZE 32
+static std::map<int, Font> fonts;
+static std::vector<int> codepoints;
 
-static Font fonts[1];
+float getRenderScale()
+{
+	int width = GetScreenWidth();
+	return width > 0 ? (float)GetRenderWidth() / width : 1;
+}
+
+static Font loadFont(int pixels)
+{
+	if(codepoints.empty())
+	{
+		// ASCII + Latin-1, cobre os acentos do português
+		for(int c = 32; c < 127; c++)
+			codepoints.push_back(c);
+		for(int c = 160; c < 256; c++)
+			codepoints.push_back(c);
+	}
+	Font font = LoadFontFromMemory(".ttf", Roboto_Regular_ttf, Roboto_Regular_ttf_len, pixels,
+		codepoints.data(), (int)codepoints.size());
+	if(!IsFontValid(font))
+		throw std::runtime_error("Unable to load the interface font.");
+	SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR);
+	return font;
+}
 
 void loadResources()
 {
-	// ASCII + Latin-1, cobre os acentos do português
-	std::vector<int> codepoints;
-	for(int c = 32; c < 127; c++)
-		codepoints.push_back(c);
-	for(int c = 160; c < 256; c++)
-		codepoints.push_back(c);
-	fonts[0] = LoadFontFromMemory(".ttf", Roboto_Regular_ttf, Roboto_Regular_ttf_len,
-		FONT_BASE_SIZE, codepoints.data(), (int)codepoints.size());
-	if(!IsFontValid(fonts[0]))
-		throw std::runtime_error("Unable to load the interface font.");
-	GenTextureMipmaps(&fonts[0].texture);
-	SetTextureFilter(fonts[0].texture, TEXTURE_FILTER_TRILINEAR);
+	getFont(13);
 }
 
 void unloadResources()
 {
-	UnloadFont(fonts[0]);
+	for(auto& item : fonts)
+		UnloadFont(item.second);
+	fonts.clear();
 }
 
-Font* getFonts()
+const Font& getFont(float size)
 {
-	return fonts;
-}
-
-const Font& getFont()
-{
-	return fonts[0];
+	int pixels = (int)roundf(size * getRenderScale());
+	if(pixels < 1)
+		pixels = 1;
+	auto it = fonts.find(pixels);
+	if(it != fonts.end())
+		return it->second;
+	return fonts[pixels] = loadFont(pixels);
 }

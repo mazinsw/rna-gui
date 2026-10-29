@@ -15,9 +15,9 @@ struct CustomDraw
 };
 
 /**
- * Inicializa o Clay e registra a medição de texto com as fontes informadas
+ * Inicializa o Clay e registra a medição de texto com a fonte da interface
  */
-void ClayRaylib_Initialize(Font* fonts);
+void ClayRaylib_Initialize();
 
 /**
  * Libera a memória do Clay
@@ -27,7 +27,7 @@ void ClayRaylib_Shutdown();
 /**
  * Desenha os comandos gerados pelo layout
  */
-void ClayRaylib_Render(Clay_RenderCommandArray commands, Font* fonts);
+void ClayRaylib_Render(Clay_RenderCommandArray commands);
 
 /**
  * Converte uma string que deve continuar viva até o fim do quadro

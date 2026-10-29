@@ -32,19 +32,20 @@ void OutputNode::draw(bool running)
 	// abaixo da saída: o valor calculado e o alvo, que alterna ao clicar
 	std::string value = "saída " + formatNumber(getValue(), 2);
 	std::string goal = "alvo " + formatNumber(target, 2);
-	float valueWidth = measureText(value, 12).x + 16;
-	float goalWidth = measureText(goal, 12).x + 16;
+	float size = ui::LabelFontSize;
+	float valueWidth = measureText(value, size).x + 18;
+	float goalWidth = measureText(goal, size).x + 18;
 	float x = center.x - (valueWidth + 6 + goalWidth) / 2;
 	float y = center.y + 26;
-	Rectangle valueBox = { x, y, valueWidth, 22 };
+	Rectangle valueBox = { x, y, valueWidth, 24 };
 	drawPill(valueBox, WHITE, color);
-	drawTextCentered(value, Vector2{ valueBox.x + valueBox.width / 2, y + 11 }, 12, color);
-	targetBox = Rectangle{ x + valueWidth + 6, y, goalWidth, 22 };
+	drawTextCentered(value, Vector2{ valueBox.x + valueBox.width / 2, y + 12 }, size, color);
+	targetBox = Rectangle{ x + valueWidth + 6, y, goalWidth, 24 };
 	if(target != 0)
 		drawPill(targetBox, ui::toColor(ui::AccentColor), ui::toColor(ui::AccentColor));
 	else
 		drawPill(targetBox, WHITE, ui::toColor(ui::PillBorderColor));
-	drawTextCentered(goal, Vector2{ targetBox.x + targetBox.width / 2, y + 11 }, 12,
+	drawTextCentered(goal, Vector2{ targetBox.x + targetBox.width / 2, y + 12 }, size,
 		target != 0 ? WHITE : ui::toColor(ui::InkColor));
 }
 

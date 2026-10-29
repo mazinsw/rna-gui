@@ -1,6 +1,7 @@
 // Baseado em renderers/raylib/clay_renderer_raylib.c do Clay (zlib)
 #define CLAY_IMPLEMENTATION
 #include "ClayRaylib.h"
+#include "Resources.h"
 #include "Shapes.h"
 #include <math.h>
 #include <stdio.h>
@@ -29,8 +30,7 @@ static Color toColor(Clay_Color color)
 static Clay_Dimensions measureText(Clay_StringSlice text, Clay_TextElementConfig* config,
 	void* userData)
 {
-	Font* fonts = (Font*)userData;
-	Vector2 size = MeasureTextEx(fonts[config->fontId], terminate(text.chars, text.length),
+	Vector2 size = MeasureTextEx(getFont(config->fontSize), terminate(text.chars, text.length),
 		config->fontSize, config->letterSpacing);
 	Clay_Dimensions dimensions = { size.x, size.y };
 	return dimensions;
@@ -41,7 +41,7 @@ static void handleError(Clay_ErrorData error)
 	fprintf(stderr, "Clay: %.*s\n", (int)error.errorText.length, error.errorText.chars);
 }
 
-void ClayRaylib_Initialize(Font* fonts)
+void ClayRaylib_Initialize()
 {
 	uint32_t size = Clay_MinMemorySize();
 	clayMemory = malloc(size);
@@ -49,7 +49,7 @@ void ClayRaylib_Initialize(Font* fonts)
 	Clay_Dimensions dimensions = { (float)GetScreenWidth(), (float)GetScreenHeight() };
 	Clay_ErrorHandler errorHandler = { handleError, NULL };
 	Clay_Initialize(arena, dimensions, errorHandler);
-	Clay_SetMeasureTextFunction(measureText, fonts);
+	Clay_SetMeasureTextFunction(measureText, NULL);
 }
 
 void ClayRaylib_Shutdown()
@@ -85,7 +85,7 @@ static void drawBorder(Rectangle rect, const Clay_BorderRenderData& border)
 			rect.width, (float)width.bottom }, color);
 }
 
-void ClayRaylib_Render(Clay_RenderCommandArray commands, Font* fonts)
+void ClayRaylib_Render(Clay_RenderCommandArray commands)
 {
 	for(int32_t i = 0; i < commands.length; i++)
 	{
@@ -110,7 +110,7 @@ void ClayRaylib_Render(Clay_RenderCommandArray commands, Font* fonts)
 		case CLAY_RENDER_COMMAND_TYPE_TEXT:
 		{
 			Clay_TextRenderData& data = command->renderData.text;
-			DrawTextEx(fonts[data.fontId],
+			DrawTextEx(getFont(data.fontSize),
 				terminate(data.stringContents.chars, data.stringContents.length),
 				Vector2{ rect.x, rect.y }, data.fontSize, data.letterSpacing,
 				toColor(data.textColor));

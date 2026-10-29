@@ -293,7 +293,7 @@ private:
 	{
 		bool running = neuralNetwork->isRunning();
 		CLAY({ .id = CLAY_ID("Toolbar"),
-			.layout = { .sizing = { CLAY_SIZING_FIXED(150), CLAY_SIZING_FIT(0) },
+			.layout = { .sizing = { CLAY_SIZING_FIXED(164), CLAY_SIZING_FIT(0) },
 				.padding = CLAY_PADDING_ALL(8), .childGap = 2,
 				.layoutDirection = CLAY_TOP_TO_BOTTOM },
 			.backgroundColor = ui::PanelColor,
@@ -347,7 +347,7 @@ private:
 				.attachTo = CLAY_ATTACH_TO_PARENT },
 			.border = { .color = ui::PanelBorderColor, .width = CLAY_BORDER_OUTSIDE(1) } })
 		{
-			CLAY_TEXT(toClayString(status), ui::textConfig(12, ui::StatusTextColor,
+			CLAY_TEXT(toClayString(status), ui::textConfig(ui::LabelFontSize, ui::StatusTextColor,
 				CLAY_TEXT_WRAP_WORDS));
 			if(!errorText.empty())
 			{
@@ -355,7 +355,7 @@ private:
 					.backgroundColor = onTarget ? ui::SuccessLightColor : ui::WarningLightColor,
 					.cornerRadius = CLAY_CORNER_RADIUS(9) })
 				{
-					CLAY_TEXT(toClayString(errorText), ui::textConfig(12,
+					CLAY_TEXT(toClayString(errorText), ui::textConfig(ui::LabelFontSize,
 						onTarget ? ui::SuccessColor : ui::WarningColor));
 				}
 			}
@@ -378,14 +378,15 @@ private:
 				.attachTo = CLAY_ATTACH_TO_PARENT },
 			.border = { .color = ui::PanelBorderColor, .width = CLAY_BORDER_OUTSIDE(1) } })
 		{
-			CLAY_TEXT(CLAY_STRING("Influência na saída"), ui::textConfig(11, ui::StatusTextColor));
-			CLAY({ .layout = { .sizing = { CLAY_SIZING_FIXED(120), CLAY_SIZING_FIXED(6) } },
+			CLAY_TEXT(CLAY_STRING("Influência na saída"), ui::textConfig(ui::CaptionFontSize,
+				ui::StatusTextColor));
+			CLAY({ .layout = { .sizing = { CLAY_SIZING_FIXED(130), CLAY_SIZING_FIXED(6) } },
 				.custom = { .customData = &legendDraw } }) {}
 			CLAY({ .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0) } } })
 			{
-				CLAY_TEXT(CLAY_STRING("baixa"), ui::textConfig(11, ui::MutedColor));
+				CLAY_TEXT(CLAY_STRING("baixa"), ui::textConfig(ui::CaptionFontSize, ui::MutedColor));
 				CLAY({ .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(1) } } }) {}
-				CLAY_TEXT(CLAY_STRING("alta"), ui::textConfig(11, ui::MutedColor));
+				CLAY_TEXT(CLAY_STRING("alta"), ui::textConfig(ui::CaptionFontSize, ui::MutedColor));
 			}
 		}
 	}
@@ -480,7 +481,7 @@ public:
 				EnableEventWaiting();
 			BeginDrawing();
 			ClearBackground(RAYWHITE);
-			ClayRaylib_Render(commands, getFonts());
+			ClayRaylib_Render(commands);
 			EndDrawing();
 			updateTitle();
 		}
@@ -511,7 +512,7 @@ int main()
 	try
 	{
 		loadResources();
-		ClayRaylib_Initialize(getFonts());
+		ClayRaylib_Initialize();
 		RedesNeuraisFrame f;
 		f.run();
 	}

@@ -1,4 +1,5 @@
 #include "Shapes.h"
+#include "Resources.h"
 #include <rlgl.h>
 #include <math.h>
 #include <vector>
@@ -10,8 +11,7 @@ namespace shapes
 
 	void beginFrame()
 	{
-		Vector2 scale = GetWindowScaleDPI();
-		feather = scale.x > 0 ? 1 / scale.x : 1;
+		feather = 1 / getRenderScale();
 	}
 
 	static Color transparent(Color color)

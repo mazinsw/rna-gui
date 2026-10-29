@@ -41,10 +41,10 @@ void InputNode::draw(bool running)
 	shapes::fillRoundedRect(box, 9, fill);
 	shapes::strokeRoundedRect(box, 9, 2, border);
 	if(bias || running)
-		drawTextCentered(formatNumber(getValue(), 2), center, 15, text);
+		drawTextCentered(formatNumber(getValue(), 2), center, 16, text);
 	else
 		icons::draw(icons::Arrow, Rectangle{ center.x - 8, center.y - 8, 16, 16 }, border);
 	if(bias)
-		drawTextCentered("bias", Vector2{ center.x, center.y + 27 }, 11,
+		drawTextCentered("bias", Vector2{ center.x, center.y + 28 }, ui::CaptionFontSize,
 			ui::toColor(ui::MutedColor));
 }

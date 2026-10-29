@@ -47,13 +47,15 @@ bool Node::parseNumber(const std::string& text, double& value)
 
 Vector2 Node::measureText(const std::string& text, float fontSize)
 {
-	return MeasureTextEx(getFont(), text.c_str(), fontSize, 0);
+	return MeasureTextEx(getFont(fontSize), text.c_str(), fontSize, 0);
 }
 
 void Node::drawText(const std::string& text, Vector2 position, float fontSize, Color color)
 {
-	DrawTextEx(getFont(), text.c_str(), Vector2{ roundf(position.x), roundf(position.y) },
-		fontSize, 0, color);
+	// no pixel da tela, para não borrar o texto
+	float scale = getRenderScale();
+	DrawTextEx(getFont(fontSize), text.c_str(), Vector2{ roundf(position.x * scale) / scale,
+		roundf(position.y * scale) / scale }, fontSize, 0, color);
 }
 
 void Node::drawTextCentered(const std::string& text, Vector2 center, float fontSize,
@@ -71,6 +73,6 @@ void Node::drawPill(Rectangle box, Color fill, Color border, float borderWidth)
 
 Rectangle Node::pillBox(Vector2 center, const std::string& text, float fontSize, float height)
 {
-	float width = measureText(text, fontSize).x + 14;
+	float width = measureText(text, fontSize).x + 16;
 	return Rectangle{ center.x - width / 2, center.y - height / 2, width, height };
 }

@@ -12,6 +12,12 @@
 namespace ui
 {
 	const uint16_t FontSize = 13;
+	// painel de botões e menus
+	const uint16_t PanelFontSize = 14;
+	// rótulos da área de edição e status
+	const uint16_t LabelFontSize = 13;
+	// títulos de grupo, legenda e dicas
+	const uint16_t CaptionFontSize = 12;
 	const float ButtonHeight = 26;
 	const Clay_Color WindowColor = { 236, 236, 236, 255 };
 	const Clay_Color TextColor = { 30, 30, 30, 255 };

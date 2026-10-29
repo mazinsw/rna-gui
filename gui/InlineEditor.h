@@ -98,10 +98,11 @@ public:
 		if(width < 84)
 			width = 84;
 		// a dica abaixo do campo pode ser mais larga que ele
-		float hintWidth = MeasureTextEx(getFont(), "Enter aplica · Esc cancela", 11, 0).x + 16;
+		float hintWidth = MeasureTextEx(getFont(ui::CaptionFontSize), "Enter aplica · Esc cancela",
+			ui::CaptionFontSize, 0).x + 16;
 		float outer = hintWidth > width ? hintWidth : width;
 		float x = origin.x + label.x + label.width / 2 - outer / 2;
-		float y = origin.y + label.y + label.height / 2 - 12;
+		float y = origin.y + label.y + label.height / 2 - 13;
 		CLAY({ .id = CLAY_ID("Editor"),
 			.layout = { .sizing = { CLAY_SIZING_FIXED(outer), CLAY_SIZING_FIT(0) },
 				.childGap = 6, .childAlignment = { CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_TOP },
@@ -110,14 +111,14 @@ public:
 		{
 			CLAY({ .layout = { .sizing = { CLAY_SIZING_FIXED(width), CLAY_SIZING_FIT(0) } } })
 			{
-				field.layout(CLAY_ID("EditorField"), 12, 24, 12);
+				field.layout(CLAY_ID("EditorField"), ui::LabelFontSize, 26, 13);
 			}
 			CLAY({ .layout = { .padding = { 8, 8, 3, 3 } },
 				.backgroundColor = ui::InkColor,
 				.cornerRadius = CLAY_CORNER_RADIUS(6) })
 			{
 				CLAY_TEXT(CLAY_STRING("Enter aplica · Esc cancela"),
-					ui::textConfig(11, ui::HighlightTextColor));
+					ui::textConfig(ui::CaptionFontSize, ui::HighlightTextColor));
 			}
 		}
 	}
