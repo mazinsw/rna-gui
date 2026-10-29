@@ -1,0 +1,5 @@
+# finais de linha LF no repositório e na cópia de trabalho, em qualquer sistema
+* text=auto eol=lf
+*.bin binary
+*.ico binary
+*.ttf binary
