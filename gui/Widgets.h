@@ -45,6 +45,13 @@ namespace ui
 	void label(Clay_String text, uint16_t fontSize = FontSize);
 
 	/**
+	 * Junta letra + acento combinante (Unicode decomposto, como o macOS
+	 * entrega nomes de arquivo) no caractere Latin-1 equivalente, que é o que
+	 * a fonte da interface contém
+	 */
+	std::string composeLatin1(const std::string& text);
+
+	/**
 	 * Janela modal centralizada sobre a interface, o conteúdo é declarado
 	 * pela função body
 	 */
@@ -175,6 +182,33 @@ public:
 	MessageDialog();
 	void show(const std::string& title, const std::string& message);
 	bool isVisible();
+	void update();
+	void layout();
+};
+
+/**
+ * Pergunta com botões de confirmar e cancelar
+ */
+class ConfirmDialog
+{
+private:
+	std::string title;
+	std::string message;
+	std::string confirmText;
+	bool visible;
+	bool confirmed;
+private:
+	void close(bool confirmed);
+public:
+	ConfirmDialog();
+	void show(const std::string& title, const std::string& message,
+		const std::string& confirmText);
+	bool isVisible();
+
+	/**
+	 * Retorna true uma única vez depois que o usuário confirmou
+	 */
+	bool takeConfirmed();
 	void update();
 	void layout();
 };

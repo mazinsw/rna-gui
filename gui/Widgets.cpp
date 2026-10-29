@@ -2,6 +2,7 @@
 #include "Input.h"
 #include "Resources.h"
 #include <math.h>
+#include <string.h>
 
 namespace ui
 {
@@ -44,6 +45,68 @@ namespace ui
 			CLAY_TEXT(text, textConfig(FontSize, enabled ? TextColor : DisabledTextColor));
 		}
 		return clicked;
+	}
+
+	/**
+	 * Caractere Latin-1 formado pela letra base e o acento combinante, ou 0
+	 */
+	static int compose(int base, int mark)
+	{
+		static const struct
+		{
+			int mark;
+			const char* bases;
+			const char* results;
+		} table[] = {
+			{ 0x300, "AEIOUaeiou", "\xC0\xC8\xCC\xD2\xD9\xE0\xE8\xEC\xF2\xF9" },
+			{ 0x301, "AEIOUYaeiouy", "\xC1\xC9\xCD\xD3\xDA\xDD\xE1\xE9\xED\xF3\xFA\xFD" },
+			{ 0x302, "AEIOUaeiou", "\xC2\xCA\xCE\xD4\xDB\xE2\xEA\xEE\xF4\xFB" },
+			{ 0x303, "ANOano", "\xC3\xD1\xD5\xE3\xF1\xF5" },
+			{ 0x308, "AEIOUaeiouy", "\xC4\xCB\xCF\xD6\xDC\xE4\xEB\xEF\xF6\xFC\xFF" },
+			{ 0x30A, "Aa", "\xC5\xE5" },
+			{ 0x327, "Cc", "\xC7\xE7" },
+		};
+		if(base <= 0 || base >= 128)
+			return 0;
+		for(const auto& entry : table)
+		{
+			if(entry.mark != mark)
+				continue;
+			const char* found = strchr(entry.bases, base);
+			if(found == NULL)
+				return 0;
+			return (unsigned char)entry.results[found - entry.bases];
+		}
+		return 0;
+	}
+
+	std::string composeLatin1(const std::string& text)
+	{
+		std::string result;
+		size_t lastStart = 0;
+		int last = 0;
+		for(size_t i = 0; i < text.size();)
+		{
+			int size;
+			int codepoint = GetCodepointNext(text.c_str() + i, &size);
+			int composed = compose(last, codepoint);
+			if(composed != 0)
+			{
+				int length;
+				const char* utf8 = CodepointToUTF8(composed, &length);
+				result.resize(lastStart);
+				result.append(utf8, length);
+				last = composed;
+			}
+			else
+			{
+				lastStart = result.size();
+				result.append(text, i, size);
+				last = codepoint;
+			}
+			i += size;
+		}
+		return result;
 	}
 
 	void label(Clay_String text, uint16_t fontSize)
@@ -396,8 +459,8 @@ MessageDialog::MessageDialog()
 
 void MessageDialog::show(const std::string& title, const std::string& message)
 {
-	this->title = title;
-	this->message = message;
+	this->title = ui::composeLatin1(title);
+	this->message = ui::composeLatin1(message);
 	visible = true;
 }
 
@@ -422,6 +485,64 @@ void MessageDialog::layout()
 		{
 			if(ui::button(CLAY_ID("MessageOk"), CLAY_STRING("OK"), true, 80))
 				visible = false;
+		});
+	});
+}
+
+ConfirmDialog::ConfirmDialog()
+{
+	visible = false;
+	confirmed = false;
+}
+
+void ConfirmDialog::show(const std::string& title, const std::string& message,
+	const std::string& confirmText)
+{
+	this->title = ui::composeLatin1(title);
+	this->message = ui::composeLatin1(message);
+	this->confirmText = ui::composeLatin1(confirmText);
+	visible = true;
+	confirmed = false;
+}
+
+bool ConfirmDialog::isVisible()
+{
+	return visible;
+}
+
+bool ConfirmDialog::takeConfirmed()
+{
+	bool result = confirmed;
+	confirmed = false;
+	return result;
+}
+
+void ConfirmDialog::close(bool confirmed)
+{
+	this->confirmed = confirmed;
+	visible = false;
+}
+
+void ConfirmDialog::update()
+{
+	if(IsKeyPressed(KEY_ESCAPE))
+		close(false);
+	else if(IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER))
+		close(true);
+}
+
+void ConfirmDialog::layout()
+{
+	ui::dialog(toClayString(title), 360, [&]()
+	{
+		CLAY_TEXT(toClayString(message), ui::textConfig(ui::FontSize, ui::TextColor,
+			CLAY_TEXT_WRAP_WORDS));
+		ui::dialogButtons([&]()
+		{
+			if(ui::button(CLAY_ID("ConfirmOk"), toClayString(confirmText), true, 80))
+				close(true);
+			if(ui::button(CLAY_ID("ConfirmCancelar"), CLAY_STRING("Cancelar"), true, 80))
+				close(false);
 		});
 	});
 }

@@ -1,6 +1,15 @@
 #ifndef _PLATFORM_H_
 #define _PLATFORM_H_
+#include <filesystem>
 #include <string>
+
+/**
+ * Caminhos são guardados em UTF-8, como o raylib os entrega. Estas funções
+ * convertem para std::filesystem::path, já que no Windows um char* seria
+ * interpretado na página de código ANSI.
+ */
+std::filesystem::path pathFromUtf8(const std::string& str);
+std::string pathToUtf8(const std::filesystem::path& path);
 
 /**
  * Caminho do arquivo da rede salva, dentro da pasta de dados do usuário

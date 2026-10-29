@@ -11,6 +11,7 @@ private:
 	Edge * edge;
 	TextField editPeso;
 	bool visible;
+	bool saved;
 private:
 	void salvar()
 	{
@@ -20,7 +21,10 @@ private:
 		double weight = strtod(str.c_str(), &end);
 		// mantém o peso anterior se não for um número
 		if(end != str.c_str())
+		{
 			edge->setWeight(weight);
+			saved = true;
+		}
 		visible = false;
 	}
 public:
@@ -28,6 +32,7 @@ public:
 	{
 		edge = NULL;
 		visible = false;
+		saved = false;
 	}
 	void show(Edge * edge)
 	{
@@ -39,6 +44,15 @@ public:
 	bool isVisible()
 	{
 		return visible;
+	}
+	/**
+	 * Retorna true uma única vez depois que o peso foi alterado
+	 */
+	bool takeSaved()
+	{
+		bool result = saved;
+		saved = false;
+		return result;
 	}
 	void update()
 	{

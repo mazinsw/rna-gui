@@ -1,7 +1,16 @@
 #include "Platform.h"
-#include <filesystem>
 #include <stdlib.h>
 
+#if defined(_WIN32)
+static std::filesystem::path getEnvPath(const wchar_t* name, const char* fallback)
+{
+	// _wgetenv evita a conversão para a página de código ANSI
+	const wchar_t* value = _wgetenv(name);
+	if(value == NULL || value[0] == L'\0')
+		return fallback;
+	return value;
+}
+#else
 static std::filesystem::path getEnvPath(const char* name, const char* fallback)
 {
 	const char* value = getenv(name);
@@ -9,12 +18,24 @@ static std::filesystem::path getEnvPath(const char* name, const char* fallback)
 		return fallback;
 	return value;
 }
+#endif
+
+std::filesystem::path pathFromUtf8(const std::string& str)
+{
+	return std::filesystem::path(std::u8string(str.begin(), str.end()));
+}
+
+std::string pathToUtf8(const std::filesystem::path& path)
+{
+	std::u8string str = path.u8string();
+	return std::string(str.begin(), str.end());
+}
 
 std::string getDataFilePath()
 {
 	std::filesystem::path dir;
 #if defined(_WIN32)
-	dir = getEnvPath("APPDATA", ".");
+	dir = getEnvPath(L"APPDATA", ".");
 #elif defined(__APPLE__)
 	dir = getEnvPath("HOME", ".") / "Library" / "Application Support";
 #else
@@ -25,5 +46,5 @@ std::string getDataFilePath()
 	dir /= "RedesNeurais";
 	std::error_code error;
 	std::filesystem::create_directories(dir, error);
-	return (dir / "NeuralNetWork.bin").string();
+	return pathToUtf8(dir / "NeuralNetWork.bin");
 }

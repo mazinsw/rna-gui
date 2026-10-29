@@ -31,6 +31,7 @@ private:
 	Node *nodeMoving;
 	Node *nodeSelected;
 	Edge * edgeSelected;
+	bool modified;
 private:
 	enum ActionState
 	{
@@ -50,6 +51,8 @@ private:
 	Node *neuronAt(int x, int y);
 	Edge* findEdge(Node* first, Node* second);
 	Edge* edgeAt(int x, int y);
+	bool canConnect(Node* first, Node* second);
+	void clear();
 	void draw();
 public:
 	void keyDown(int key)
@@ -87,6 +90,7 @@ public:
 			{
 				nodeSelected->setPosition(nodeSelected->getPosition().x,
 					nodeSelected->getPosition().y - 1);
+				modified = true;
 			}
 		}
 		else if(key == KEY_DOWN)
@@ -95,6 +99,7 @@ public:
 			{
 				nodeSelected->setPosition(nodeSelected->getPosition().x,
 					nodeSelected->getPosition().y + 1);
+				modified = true;
 			}
 		}
 		else if(key == KEY_LEFT)
@@ -103,6 +108,7 @@ public:
 			{
 				nodeSelected->setPosition(nodeSelected->getPosition().x - 1,
 					nodeSelected->getPosition().y);
+				modified = true;
 			}
 		}
 		else if(key == KEY_RIGHT)
@@ -111,6 +117,7 @@ public:
 			{
 				nodeSelected->setPosition(nodeSelected->getPosition().x + 1,
 					nodeSelected->getPosition().y);
+				modified = true;
 			}
 		}
 	}
@@ -179,7 +186,10 @@ public:
 			downY = y;
 			actionState = ActionNone;
 			if(bMoving)
+			{
 				nodeMoving->setPosition(this->x, this->y);
+				modified = true;
+			}
 		}
 		else if(actionState == ActionConnect)
 		{
@@ -205,8 +215,26 @@ public:
 	void addNeuron();
 	void addInput();
 	void addOutput();
+	/**
+	 * Grava a rede, o caminho é UTF-8
+	 */
 	void saveToFile(const std::string& fileName);
+
+	/**
+	 * Substitui a rede pela do arquivo, o caminho é UTF-8. Se o arquivo for
+	 * inválido lança exceção e a rede atual não é alterada.
+	 */
 	void loadFromFile(const std::string& fileName);
+
+	/**
+	 * Informa que um nó ou conexão foi alterado fora da rede (diálogos)
+	 */
+	void notifyDataChanged();
+
+	/**
+	 * Indica se há alterações desde a última leitura ou gravação
+	 */
+	bool isModified();
 	Edge* getSelectedEdge();
 	Node* getSelectedNode();
 };

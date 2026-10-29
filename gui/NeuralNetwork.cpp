@@ -1,5 +1,7 @@
 #include "NeuralNetwork.h"
+#include "Platform.h"
 #include "Resources.h"
+#include <ctype.h>
 #include <fstream>
 #include <map>
 #include <stdexcept>
@@ -91,16 +93,12 @@ NeuralNetwork::NeuralNetwork()
 	nodeAdd = new NeuronNode(neuronImg, funcImgs);
 	edgeAdd = new Edge(NULL, nodeAdd, 0);
 	actionState = ActionNone;
+	modified = false;
 }
 
 NeuralNetwork::~NeuralNetwork()
 {
-	std::vector<Node *>::iterator it;
-	for(it = neurons.begin(); it != neurons.end(); it++)
-		delete *it;
-	std::vector<Edge *>::iterator ite;
-	for(ite = edges.begin(); ite != edges.end(); ite++)
-		delete *ite;
+	clear();
 	std::vector<Texture2D>::iterator itm;
 	for(itm = funcImgs.begin(); itm != funcImgs.end(); itm++)
 		UnloadTexture(*itm);
@@ -142,6 +140,7 @@ void NeuralNetwork::addNeuron(int x, int y)
 	neurons.push_back(node);
 	nodeAdd = new NeuronNode(neuronImg, funcImgs);
 	edgeAdd->setSecond(nodeAdd);
+	modified = true;
 }
 
 void NeuralNetwork::paint(Rectangle bounds)
@@ -230,22 +229,29 @@ Edge *NeuralNetwork::edgeAt(int x, int y)
 	return NULL;
 }
 
+bool NeuralNetwork::canConnect(Node *first, Node *second)
+{
+	if(findEdge(first, second) != NULL)
+		return false;
+	if(first->is(Node::TypeInput) && second->is(Node::TypeInput))
+		return false;
+	if(first->is(Node::TypeOutput) && second->is(Node::TypeOutput))
+		return false;
+	if(first->is(Node::TypeOutput) && second->is(Node::TypeInput))
+		return false;
+	if(first->is(Node::TypeInput) && second->is(Node::TypeOutput))
+		return false;
+	return true;
+}
+
 void NeuralNetwork::addEdge(Node *node)
 {
-	Edge *edge = findEdge(edgeAdd->getFirst(), node);
-	if(edge != NULL)
-		return;
 	Node *first = edgeAdd->getFirst();
-	if(first->is(Node::TypeInput) && node->is(Node::TypeInput))
+	if(!canConnect(first, node))
 		return;
-	if(first->is(Node::TypeOutput) && node->is(Node::TypeOutput))
-		return;
-	if(first->is(Node::TypeOutput) && node->is(Node::TypeInput))
-		return;
-	if(first->is(Node::TypeInput) && node->is(Node::TypeOutput))
-		return;
-	edge = new Edge(first, node, edgeAdd->getWeight());
+	Edge *edge = new Edge(first, node, edgeAdd->getWeight());
 	edges.push_back(edge);
+	modified = true;
 }
 
 void NeuralNetwork::selectNode(Node *node)
@@ -299,6 +305,7 @@ void NeuralNetwork::deleteNode(Node *node)
 		break;
 	}
 	actionState = ActionNone;
+	modified = true;
 }
 
 void NeuralNetwork::deleteEdge(Edge* edge)
@@ -314,6 +321,36 @@ void NeuralNetwork::deleteEdge(Edge* edge)
 		break;
 	}
 	actionState = ActionNone;
+	modified = true;
+}
+
+void NeuralNetwork::clear()
+{
+	selectNode(NULL);
+	selectEdge(NULL);
+	std::vector<Edge *>::iterator ite;
+	for(ite = edges.begin(); ite != edges.end(); ite++)
+		delete *ite;
+	edges.clear();
+	std::vector<Node *>::iterator it;
+	for(it = neurons.begin(); it != neurons.end(); it++)
+		delete *it;
+	neurons.clear();
+	edgeAdd->setFirst(NULL);
+	nodeMoving = NULL;
+	bDown = false;
+	bMoving = false;
+	actionState = ActionNone;
+}
+
+void NeuralNetwork::notifyDataChanged()
+{
+	modified = true;
+}
+
+bool NeuralNetwork::isModified()
+{
+	return modified;
 }
 
 Edge* NeuralNetwork::getSelectedEdge()
@@ -329,7 +366,7 @@ Node* NeuralNetwork::getSelectedNode()
 
 void NeuralNetwork::saveToFile(const std::string& fileName)
 {
-	std::ofstream file(fileName.c_str(), std::ios::binary | std::ios::trunc);
+	std::ofstream file(pathFromUtf8(fileName), std::ios::binary | std::ios::trunc);
 	std::vector<Node *>::iterator it;
 	std::vector<Edge *>::iterator ite;
 	std::map<Node*,int> nodeMap;
@@ -367,18 +404,27 @@ void NeuralNetwork::saveToFile(const std::string& fileName)
 	file.close();
 	if(!file)
 		throw std::runtime_error("Unable to write " + fileName + ".");
+	modified = false;
 }
 
 void NeuralNetwork::loadFromFile(const std::string& fileName)
 {
-	std::ifstream file(fileName.c_str(), std::ios::binary);
+	struct NodeData
+	{
+		int type, function, x, y;
+	};
+	struct EdgeData
+	{
+		int first, second;
+		double weight;
+	};
+	std::ifstream file(pathFromUtf8(fileName), std::ios::binary);
+	std::vector<NodeData> nodes;
+	std::vector<EdgeData> links;
 	uint32_t neuronCount;
 	uint32_t edgeCount;
-	int actFunc;
-	double weight;
 	unsigned char ver[4];
 	uint32_t i;
-	int nodeType, xPos, yPos, firstNodeID, secondNodeID;
 
 	if(!file)
 		throw std::runtime_error("Unable to open " + fileName + ".");
@@ -386,45 +432,61 @@ void NeuralNetwork::loadFromFile(const std::string& fileName)
 	readBytes(file, ver, 3); // sign
 	if(strcmp((const char*)ver, RN_SIGN) != 0)
 	{
+		if(!isprint(ver[0]) || !isprint(ver[1]) || !isprint(ver[2]))
+			throw std::runtime_error("Not a neural network file.");
 		throw std::runtime_error(std::string("Version ") + (const char*)ver +
 			" not supported, required " RN_SIGN ".");
 	}
 	neuronCount = readUInt32(file); // neuron count
 	edgeCount = readUInt32(file); // edge count
-	// save each neuron
-	for(i = 1; i <= neuronCount; i++)
+	// lê o arquivo inteiro antes de alterar a rede, um arquivo inválido
+	// mantém a rede atual
+	for(i = 0; i < neuronCount; i++)
 	{
-		Node *node;
-		nodeType = readInt32(file); // type, 1 -> Neuron, 2 -> Input, 3 ->Output
-		actFunc = readInt32(file); // activation function
-		xPos = readInt32(file); // x position
-		yPos = readInt32(file); // y position
-		if(nodeType == Node::TypeNeuron &&
-			(actFunc < 0 || actFunc >= NeuronNode::FunctionCount))
+		NodeData node;
+		node.type = readInt32(file); // type, 1 -> Neuron, 2 -> Input, 3 ->Output
+		node.function = readInt32(file); // activation function
+		node.x = readInt32(file); // x position
+		node.y = readInt32(file); // y position
+		if(node.type == Node::TypeNeuron &&
+			(node.function < 0 || node.function >= NeuronNode::FunctionCount))
 			throw std::runtime_error("Invalid activation function.");
-		if(nodeType == Node::TypeNeuron)
-			node = new NeuronNode(neuronImg, funcImgs);
-		else if(nodeType == Node::TypeInput)
-			node = new InputNode(inputImg);
-		else
-			node = new OutputNode(outputImg);
-		delete nodeAdd;
-		edgeAdd->setSecond(NULL);
-		if(nodeType == Node::TypeNeuron)
-			((NeuronNode*)node)->setFunctionType(actFunc);
-		nodeAdd = node;
-		addNeuron(xPos, yPos);
+		nodes.push_back(node);
 	}
 	for(i = 0; i < edgeCount; i++)
 	{
-		firstNodeID = readInt32(file); // first node id
-		secondNodeID = readInt32(file); // second node id
-		weight = readDouble(file); // connection weight
-		if(firstNodeID < 1 || firstNodeID > (int)neurons.size() ||
-			secondNodeID < 1 || secondNodeID > (int)neurons.size())
+		EdgeData edge;
+		edge.first = readInt32(file); // first node id
+		edge.second = readInt32(file); // second node id
+		edge.weight = readDouble(file); // connection weight
+		if(edge.first < 1 || edge.first > (int)nodes.size() ||
+			edge.second < 1 || edge.second > (int)nodes.size())
 			throw std::runtime_error("Invalid node id.");
-		edgeAdd->setFirst(neurons[firstNodeID - 1]);
-		edgeAdd->setWeight(weight);
-		addEdge(neurons[secondNodeID - 1]);
+		links.push_back(edge);
 	}
+	clear();
+	for(size_t n = 0; n < nodes.size(); n++)
+	{
+		Node *node;
+		if(nodes[n].type == Node::TypeNeuron)
+		{
+			NeuronNode *neuron = new NeuronNode(neuronImg, funcImgs);
+			neuron->setFunctionType(nodes[n].function);
+			node = neuron;
+		}
+		else if(nodes[n].type == Node::TypeInput)
+			node = new InputNode(inputImg);
+		else
+			node = new OutputNode(outputImg);
+		node->setPosition(nodes[n].x, nodes[n].y);
+		neurons.push_back(node);
+	}
+	for(size_t e = 0; e < links.size(); e++)
+	{
+		Node *first = neurons[links[e].first - 1];
+		Node *second = neurons[links[e].second - 1];
+		if(canConnect(first, second))
+			edges.push_back(new Edge(first, second, links[e].weight));
+	}
+	modified = false;
 }

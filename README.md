@@ -48,6 +48,9 @@ A rede desenhada na interface é salva no mesmo formato da versão Windows origi
 - Linux: `~/.local/share/RedesNeurais/NeuralNetWork.bin`
 - Windows: `%APPDATA%\RedesNeurais\NeuralNetWork.bin`
 
+Para abrir outra rede, arraste o arquivo para a janela. O título mostra o arquivo aberto, com `*`
+quando há alterações não salvas, e "Salvar" grava nesse arquivo.
+
 ## Console
 
 ```

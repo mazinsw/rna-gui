@@ -20,7 +20,12 @@ private:
 	EdgePropertyDialog edgePropertyDialog;
 	NodePropertyDialog nodePropertyDialog;
 	MessageDialog messageDialog;
+	ConfirmDialog confirmDialog;
+	// arquivo aberto, onde "Salvar" grava (UTF-8)
 	std::string fileName;
+	// arquivo solto na janela aguardando confirmação
+	std::string pendingFile;
+	std::string title;
 	Vector2 mouse;
 	bool minSizeSet;
 private:
@@ -49,6 +54,45 @@ private:
 			messageDialog.show("Erro", std::string("Falha ao salvar a rede\n") + e.what());
 		}
 	}
+	void openFile(const std::string& path)
+	{
+		try
+		{
+			neuralNetwork->loadFromFile(path);
+			fileName = path;
+		}
+		catch (const std::exception& e)
+		{
+			messageDialog.show("Erro", std::string("Falha na leitura da rede\n") + e.what());
+		}
+	}
+	/**
+	 * Abre o arquivo solto na janela, confirmando antes se há alterações
+	 */
+	void requestOpen(const std::string& path)
+	{
+		if(!neuralNetwork->isModified())
+			return openFile(path);
+		pendingFile = path;
+		confirmDialog.show("Abrir rede", "A rede atual tem alterações não salvas que serão "
+			"perdidas.\nAbrir " + pathToUtf8(pathFromUtf8(path).filename()) + "?", "Abrir");
+	}
+	bool isDialogVisible()
+	{
+		return messageDialog.isVisible() || confirmDialog.isVisible() ||
+			edgePropertyDialog.isVisible() || nodePropertyDialog.isVisible();
+	}
+	void dropFiles()
+	{
+		if(!IsFileDropped())
+			return;
+		FilePathList files = LoadDroppedFiles();
+		std::string path = files.count > 0 ? files.paths[0] : "";
+		UnloadDroppedFiles(files);
+		// com um diálogo aberto o arquivo é ignorado
+		if(!path.empty() && !isDialogVisible())
+			requestOpen(path);
+	}
 	/**
 	 * Encaminha teclado e mouse para o diálogo aberto ou para a área de edição
 	 */
@@ -56,9 +100,12 @@ private:
 	{
 		Vector2 last = mouse;
 		mouse = GetMousePosition();
+		dropFiles();
 		// diálogo modal: a área de edição não recebe nada neste quadro
 		if(messageDialog.isVisible())
 			return messageDialog.update();
+		if(confirmDialog.isVisible())
+			return confirmDialog.update();
 		if(edgePropertyDialog.isVisible())
 			return edgePropertyDialog.update();
 		if(nodePropertyDialog.isVisible())
@@ -77,12 +124,32 @@ private:
 		int x = (int)(mouse.x - data.boundingBox.x);
 		int y = (int)(mouse.y - data.boundingBox.y);
 		bool over = Clay_PointerOver(id);
-		bool moved = mouse.x != last.x || mouse.y != last.y;		if(moved && (over || neuralNetwork->isMouseDown()))
+		bool moved = mouse.x != last.x || mouse.y != last.y;
+		if(moved && (over || neuralNetwork->isMouseDown()))
 			neuralNetwork->mouseMove(x, y);
 		if(input::mousePressed() && over)
 			neuralNetwork->mouseDown(x, y, MOUSE_BUTTON_LEFT);
 		if(input::mouseReleased() && !input::mouseDown())
 			neuralNetwork->mouseUp(x, y, MOUSE_BUTTON_LEFT);
+	}
+	/**
+	 * Aplica o resultado dos diálogos fechados neste quadro, retorna true se
+	 * algo mudou
+	 */
+	bool updateDialogs()
+	{
+		bool changed = false;
+		if(edgePropertyDialog.takeSaved() || nodePropertyDialog.takeSaved())
+		{
+			neuralNetwork->notifyDataChanged();
+			changed = true;
+		}
+		if(confirmDialog.takeConfirmed())
+		{
+			openFile(pendingFile);
+			changed = true;
+		}
+		return changed;
 	}
 	void layout()
 	{
@@ -122,10 +189,26 @@ private:
 		}
 		if(messageDialog.isVisible())
 			messageDialog.layout();
+		else if(confirmDialog.isVisible())
+			confirmDialog.layout();
 		else if(edgePropertyDialog.isVisible())
 			edgePropertyDialog.layout();
 		else if(nodePropertyDialog.isVisible())
 			nodePropertyDialog.layout();
+	}
+	/**
+	 * Mostra no título o arquivo aberto e um * se houver alterações
+	 */
+	void updateTitle()
+	{
+		std::string text = "Redes Neurais Artificiais - " +
+			pathToUtf8(pathFromUtf8(fileName).filename());
+		if(neuralNetwork->isModified())
+			text += " *";
+		if(text == title)
+			return;
+		title = text;
+		SetWindowTitle(title.c_str());
 	}
 	/**
 	 * Impede que a janela fique menor que a barra de botões
@@ -153,7 +236,7 @@ public:
 		try
 		{
 			std::error_code error;
-			if(std::filesystem::exists(fileName, error))
+			if(std::filesystem::exists(pathFromUtf8(fileName), error))
 				neuralNetwork->loadFromFile(fileName);
 		}
 		catch (const std::exception& e)
@@ -179,10 +262,18 @@ public:
 			layout();
 			Clay_RenderCommandArray commands = Clay_EndLayout();
 			ui::endFrame();
+			bool changed = updateDialogs();
+			// cliques são tratados durante o layout, então o que mudaram só aparece
+			// no quadro seguinte: desenha mais um sem esperar por evento
+			if(changed || input::mousePressed() || input::mouseReleased())
+				DisableEventWaiting();
+			else
+				EnableEventWaiting();
 			BeginDrawing();
 			ClearBackground(RAYWHITE);
 			ClayRaylib_Render(commands, getFonts());
 			EndDrawing();
+			updateTitle();
 			updateMinSize();
 		}
 	}

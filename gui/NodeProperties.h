@@ -9,10 +9,12 @@ private:
 	NeuronNode * node;
 	ComboBox cboFuncao;
 	bool visible;
+	bool saved;
 private:
 	void salvar()
 	{
 		node->setFunctionType(cboFuncao.getSelected());
+		saved = true;
 		visible = false;
 	}
 public:
@@ -20,6 +22,7 @@ public:
 	{
 		node = NULL;
 		visible = false;
+		saved = false;
 		cboFuncao.add("Linear");
 		cboFuncao.add("Degrau");
 		cboFuncao.add("Bipolar");
@@ -36,6 +39,15 @@ public:
 	bool isVisible()
 	{
 		return visible;
+	}
+	/**
+	 * Retorna true uma única vez depois que a função foi alterada
+	 */
+	bool takeSaved()
+	{
+		bool result = saved;
+		saved = false;
+		return result;
 	}
 	void update()
 	{
