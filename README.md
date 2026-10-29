@@ -51,6 +51,19 @@ A rede desenhada na interface é salva no mesmo formato da versão Windows origi
 Para abrir outra rede, arraste o arquivo para a janela. O título mostra o arquivo aberto, com `*`
 quando há alterações não salvas, e "Salvar" grava nesse arquivo.
 
+## Exemplos
+
+A pasta `exemplos/` tem redes prontas para as funções lógicas AND, OR e XOR, com neurônios de
+função degrau:
+
+- `and.bin`, `or.bin` e `xor.bin`: arraste para a janela da interface.
+- `and.txt`, `or.txt` e `xor.txt`: a mesma rede no formato do console, com as 4 amostras da tabela
+  verdade: `build/RedesNeurais < exemplos/xor.txt`.
+
+A primeira entrada é o bias, sempre -1, e o peso dela é o limiar do neurônio: no AND o neurônio
+dispara quando `x1 + x2 - 1,5 >= 0`, no OR quando `x1 + x2 - 0,5 >= 0`. O XOR não é linearmente
+separável e usa uma camada oculta: um neurônio OR, um AND e a saída `OR - AND - 0,5`.
+
 ## Console
 
 ```
