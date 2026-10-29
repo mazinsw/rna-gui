@@ -18,6 +18,7 @@ namespace icons
 		Stop,
 		Train,
 		Save,
+		Arrange,
 		// dentro da entrada, 16x16
 		Arrow,
 		// menu, em uma caixa 30x20

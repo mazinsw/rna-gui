@@ -4,7 +4,9 @@
 #include "Widgets.h"
 #include <cmath>
 #include <ctype.h>
+#include <algorithm>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <stdexcept>
 #include <stdint.h>
@@ -16,6 +18,9 @@
 #define GRID_OFFSET 10
 // distância em que o nó arrastado entra na camada ou na linha de outro nó
 #define SNAP_DISTANCE 8
+// maior distância entre camadas e entre os nós de uma camada ao reorganizar
+#define ARRANGE_LAYER_SPACING 200
+#define ARRANGE_NODE_SPACING 160
 
 /*
  * Formato do arquivo, little-endian com tamanhos fixos para ser o mesmo em
@@ -533,6 +538,115 @@ void NeuralNetwork::keepRightOf(int left)
 		const Point& p = (*it)->getPosition();
 		(*it)->setPosition(p.x + left - lowest, p.y);
 	}
+}
+
+/**
+ * Maior espaçamento até max, múltiplo da grade, para count nós caberem em size
+ */
+static int arrangeSpacing(int count, float size, int max)
+{
+	if(count < 2)
+		return 0;
+	int spacing = (int)(size / (count - 1)) / GRID_SIZE * GRID_SIZE;
+	if(spacing > max)
+		spacing = max;
+	return spacing < GRID_SIZE ? GRID_SIZE : spacing;
+}
+
+int NeuralNetwork::arrange(Rectangle area)
+{
+	cancelAction();
+	if(neurons.empty())
+		return 0;
+	std::map<Node *, std::vector<Node *> > sources;
+	std::vector<Edge *>::iterator ite;
+	for(ite = edges.begin(); ite != edges.end(); ite++)
+		sources[(*ite)->getSecond()].push_back((*ite)->getFirst());
+	// camada do neurônio: uma depois do nó mais distante que o alimenta
+	std::map<Node *, int> layers;
+	std::function<int(Node *)> layerOf = [&](Node *node) -> int
+	{
+		std::map<Node *, int>::iterator found = layers.find(node);
+		if(found != layers.end())
+			return found->second;
+		if(!node->is(Node::TypeNeuron))
+			return 0;
+		// num ciclo a volta ao neurônio encontra este valor e para
+		layers[node] = 1;
+		int layer = 1;
+		std::vector<Node *>::iterator its;
+		for(its = sources[node].begin(); its != sources[node].end(); its++)
+			layer = std::max(layer, layerOf(*its) + 1);
+		return layers[node] = layer;
+	};
+	int outputLayer = 1;
+	std::vector<Node *>::iterator it;
+	for(it = neurons.begin(); it != neurons.end(); it++)
+	{
+		if((*it)->is(Node::TypeNeuron))
+			outputLayer = std::max(outputLayer, layerOf(*it) + 1);
+	}
+	// colunas na ordem atual de cima para baixo, sem as camadas vazias
+	std::vector<std::vector<Node *> > columns(outputLayer + 1);
+	std::vector<Node *> sorted = neurons;
+	std::stable_sort(sorted.begin(), sorted.end(), [](Node *a, Node *b)
+	{
+		return a->getPosition().y < b->getPosition().y;
+	});
+	for(it = sorted.begin(); it != sorted.end(); it++)
+	{
+		Node *node = *it;
+		int layer = 0;
+		if(node->is(Node::TypeNeuron))
+			layer = layers[node];
+		else if(node->is(Node::TypeOutput))
+			layer = outputLayer;
+		columns[layer].push_back(node);
+	}
+	columns.erase(std::remove_if(columns.begin(), columns.end(),
+		[](const std::vector<Node *>& column) { return column.empty(); }), columns.end());
+	int spacingX = arrangeSpacing((int)columns.size(), area.width, ARRANGE_LAYER_SPACING);
+	int left = snapToGrid((int)(area.x + (area.width - spacingX * ((int)columns.size() - 1)) / 2));
+	std::map<Node *, Point> positions;
+	for(size_t c = 0; c < columns.size(); c++)
+	{
+		std::vector<Node *>& column = columns[c];
+		// cada nó perto da altura média dos que o alimentam, para cruzar menos
+		std::map<Node *, float> heights;
+		for(it = column.begin(); it != column.end(); it++)
+		{
+			float sum = 0;
+			int count = 0;
+			std::vector<Node *>::iterator its;
+			for(its = sources[*it].begin(); its != sources[*it].end(); its++)
+			{
+				std::map<Node *, Point>::iterator placed = positions.find(*its);
+				if(placed == positions.end())
+					continue;
+				sum += placed->second.y;
+				count++;
+			}
+			heights[*it] = count > 0 ? sum / count : (*it)->getPosition().y;
+		}
+		std::stable_sort(column.begin(), column.end(), [&](Node *a, Node *b)
+		{
+			return heights[a] < heights[b];
+		});
+		int spacingY = arrangeSpacing((int)column.size(), area.height, ARRANGE_NODE_SPACING);
+		int top = snapToGrid((int)(area.y + (area.height - spacingY * ((int)column.size() - 1)) / 2));
+		for(size_t n = 0; n < column.size(); n++)
+			positions[column[n]] = Point(left + spacingX * (int)c, top + spacingY * (int)n);
+	}
+	std::map<Node *, Point>::iterator itp;
+	for(itp = positions.begin(); itp != positions.end(); itp++)
+	{
+		const Point& old = itp->first->getPosition();
+		if(old.x == itp->second.x && old.y == itp->second.y)
+			continue;
+		itp->first->setPosition(itp->second);
+		modified = true;
+	}
+	return (int)columns.size();
 }
 
 void NeuralNetwork::setInputBias(InputNode *input, bool bias)

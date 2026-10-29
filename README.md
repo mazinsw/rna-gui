@@ -70,6 +70,9 @@ peso 1.
   pixels do x de outro nó ele entra na camada desse nó, e do y, na linha dele, com prioridade sobre
   a grade. Uma linha azul mostra o alinhamento com outro nó e uma tracejada, com a grade. Segure Alt
   (Option no Mac) para mover sem alinhar.
+- "Reorganizar" refaz a posição de todos os nós em camadas: as entradas na primeira, cada neurônio
+  logo depois do nó mais distante que o alimenta e as saídas na última. Dentro da camada os nós
+  ficam na altura média dos que os alimentam, para as conexões cruzarem menos.
 
 Cada neurônio tem um bias (`b`, mostrado acima dele) somado à entrada da função de ativação, que faz
 o papel do limiar negativo. Ele começa aleatório e é treinado junto com os pesos. Para modelar o

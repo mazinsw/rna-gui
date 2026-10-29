@@ -268,6 +268,14 @@ public:
 	 * posição não conta como alteração
 	 */
 	void keepRightOf(int left);
+
+	/**
+	 * Reorganiza a rede em camadas: as entradas na primeira, cada neurônio
+	 * depois dos nós que o alimentam e as saídas na última, centralizadas na
+	 * área informada para os centros dos nós e alinhadas à grade. Retorna o
+	 * número de camadas.
+	 */
+	int arrange(Rectangle area);
 	void setInputBias(InputNode *input, bool bias);
 	/**
 	 * Grava a rede, o caminho é UTF-8

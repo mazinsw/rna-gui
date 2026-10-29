@@ -126,6 +126,18 @@ namespace icons
 			c.lines({ { 3, 12 }, { 3, 14 }, { 4.5f, 15.5f }, { 13.5f, 15.5f }, { 15, 14 },
 				{ 15, 12 } });
 			break;
+		case Arrange:
+		{
+			// rede em camadas: dois nós, dois nós e um
+			Canvas thin(bounds, size, 1.2f, color);
+			thin.lines({ { 3.5f, 5 }, { 9, 5 }, { 14.5f, 9 }, { 9, 13 }, { 3.5f, 13 } });
+			c.dot(3.5f, 5, 2);
+			c.dot(3.5f, 13, 2);
+			c.dot(9, 5, 2);
+			c.dot(9, 13, 2);
+			c.dot(14.5f, 9, 2);
+			break;
+		}
 		case Arrow:
 			c.lines({ { 3, 8 }, { 12, 8 } });
 			c.lines({ { 8.5f, 4.5f }, { 12, 8 }, { 8.5f, 11.5f } });

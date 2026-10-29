@@ -106,6 +106,24 @@ private:
 			break;
 		}
 	}
+	void reorganizar()
+	{
+		editor.cancel();
+		menu.close();
+		Clay_ElementData canvas = Clay_GetElementData(CLAY_ID("NeuralNetwork"));
+		if(!canvas.found)
+			return;
+		// centros dos nós à direita do painel, com espaço para o bias acima, os
+		// valores abaixo e o status
+		Rectangle area = { PanelRight + 40, 70, canvas.boundingBox.width - PanelRight - 100,
+			canvas.boundingBox.height - 180 };
+		int layers = neuralNetwork->arrange(area);
+		if(layers == 0)
+			message = "Adicione nós para reorganizar a rede.";
+		else
+			message = "Rede reorganizada em " + std::to_string(layers) +
+				(layers == 1 ? " camada." : " camadas.");
+	}
 	void salvar()
 	{
 		try
@@ -334,6 +352,8 @@ private:
 				true, ui::ButtonAccent))
 				treinar();
 			ui::separator(6);
+			if(ui::toolButton(CLAY_ID("Reorganizar"), icons::Arrange, CLAY_STRING("Reorganizar")))
+				reorganizar();
 			if(ui::toolButton(CLAY_ID("Salvar"), icons::Save, CLAY_STRING("Salvar")))
 				salvar();
 		}
