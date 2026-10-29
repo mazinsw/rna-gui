@@ -5,15 +5,12 @@
 class InputNode: public Node
 {
 private:
-	Rectangle valueBox;
 	bool bias;
 public:
-	InputNode(Texture2D img);
+	InputNode();
 	virtual Type getType() { return TypeInput; }
 	virtual bool IsIn(const Point& p);
-	virtual void draw();
-	virtual void drawValue();
-	virtual bool IsInValue(const Point& p);
+	virtual void draw(bool running);
 
 	/**
 	 * Alterna o valor da entrada entre 0 e 1, o bias fica sempre em 1

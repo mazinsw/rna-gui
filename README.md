@@ -57,18 +57,27 @@ abre. A interface lê os dois.
 
 ### Editando e executando
 
-Clique em um nó e depois em outro para conectá-los. A conexão começa com peso aleatório entre -1 e
-1, e a conexão com uma saída com peso 1. Clique duplo em um neurônio altera a função de ativação e
-o bias, em uma entrada altera o tipo e em uma conexão altera o peso.
+Os botões ficam num painel flutuante no canto da área de edição. Clique em um nó e depois em outro
+para conectá-los. A conexão começa com peso aleatório entre -1 e 1, e a conexão com uma saída com
+peso 1.
+
+- Clique direito (ou duplo) no neurônio: menu com a função de ativação e "Excluir neurônio". Na
+  entrada o menu escolhe o tipo, dado ou bias, e na conexão ou na saída exclui.
+- Peso e bias: o primeiro clique seleciona e o segundo (ou um clique duplo) edita no lugar. Enter
+  ou clicar fora aplica, Esc cancela.
+- Delete exclui o nó ou a conexão selecionada.
 
 Cada neurônio tem um bias (`b`, mostrado acima dele) somado à entrada da função de ativação, que faz
 o papel do limiar negativo. Ele começa aleatório e é treinado junto com os pesos. Para modelar o
-bias como entrada, use uma entrada do tipo "Bias": ela vale sempre 1 e o peso da conexão é o bias.
+bias como entrada, use uma entrada do tipo bias: ela vale sempre 1 e o peso da conexão é o bias.
+
+A cor e a espessura de cada conexão mostram a influência dela na saída, do cinza ao vermelho: na
+edição pelo peso, na execução pelo peso vezes o valor que passa por ela, relativos à maior da rede.
 
 "Executar" liga o modo de execução: clique nas entradas para alternar o valor entre 0 e 1 e nas
 saídas para alternar o alvo. Cada neurônio mostra o valor calculado e a saída fica verde quando é
-igual ao alvo. "Treinar" ajusta os pesos e os bias por retropropagação com os valores atuais até a saída
-ficar igual ao alvo (taxa de aprendizado 0,1, no máximo 1000 iterações) e destaca os pesos
+igual ao alvo. "Treinar" ajusta os pesos e os bias por retropropagação com os valores atuais até a
+saída ficar igual ao alvo (taxa de aprendizado 0,1, no máximo 1000 iterações) e destaca os valores
 alterados. Treine cada linha da tabela verdade até todas acertarem. "Parar" volta à edição.
 
 ## Exemplos

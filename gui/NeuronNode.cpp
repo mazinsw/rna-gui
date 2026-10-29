@@ -1,44 +1,61 @@
 #include "NeuronNode.h"
+#include "Icons.h"
+#include "Shapes.h"
 #include "Widgets.h"
 
-NeuronNode::NeuronNode(Texture2D img, std::vector<Texture2D>& funcImgs): Node(img),
-	funcImgs(funcImgs)
+NeuronNode::NeuronNode()
 {
 	setFunctionType(Linear);
 	setBias(0);
 	setBiasChanged(false);
+	setBiasSelected(false);
 	biasBox = Rectangle{ 0, 0, 0, 0 };
 }
 
 bool NeuronNode::IsIn(const Point& p)
 {
-	// dentro do círculo ou sobre o bias
-	return sqrt(pow(getPosition().x - p.x, 2) + pow(getPosition().y - p.y, 2)) * 2 <=
-		48 || CheckCollisionPointRec(Vector2{ (float)p.x, (float)p.y }, biasBox);
+	// verifica se o ponto está dentro do círculo
+	int dx = p.x - getPosition().x, dy = p.y - getPosition().y;
+	return dx * dx + dy * dy <= 28 * 28;
 }
 
-void NeuronNode::draw()
+bool NeuronNode::IsInBias(const Point& p)
 {
+	return CheckCollisionPointRec(Vector2{ (float)p.x, (float)p.y }, biasBox);
+}
+
+void NeuronNode::draw(bool running)
+{
+	// círculo com o gráfico da função de ativação
+	Vector2 center = getCenter();
+	Color ink = ui::toColor(ui::NodeColor);
+	shapes::fillCircle(Vector2{ center.x, center.y + 2 }, 29, Color{ 15, 23, 42, 30 });
 	if(isSelected())
-		DrawCircle(getPosition().x, getPosition().y, 28, ORANGE);
-	Node::draw();
-	Texture2D img = funcImgs[functionType];
-	DrawTexture(img, getPosition().x + 9, getPosition().y - (img.height / 2), WHITE);
+		shapes::strokeCircle(center, 31, 4, ui::toColor(ui::SelectionRingColor));
+	shapes::fillCircle(center, 28, WHITE);
+	shapes::strokeCircle(center, 27, 2, ink);
+	icons::drawFunction(functionType, Rectangle{ center.x - 15, center.y - 10, 30, 20 }, ink);
 	// bias acima do neurônio, com a aparência do peso das conexões
-	std::string text = "b = " + formatNumber(bias, 3);
-	Vector2 size = measureLabel(text, 13);
-	biasBox = Rectangle{ getPosition().x - size.x / 2, (float)getPosition().y - 28 - size.y,
-		size.x, size.y };
-	Color fill = biasChanged ? Color{ 0xFF, 0xE5, 0x8F, 0xFF } : Color{ 0xE0, 0xF0, 0xE0, 0xFF };
-	drawLabel(biasBox, text, 13, fill, Color{ 0, 127, 255, 255 }, Color{ 0, 0, 255, 255 });
-}
-
-void NeuronNode::drawValue()
-{
-	// abaixo do neurônio
+	std::string prefix = "b ";
+	std::string value = formatNumber(bias, 3);
+	float prefixWidth = measureText(prefix, 12).x;
+	float width = prefixWidth + measureText(value, 12).x + 14;
+	biasBox = Rectangle{ center.x - width / 2, center.y - 54, width, 20 };
+	if(biasChanged)
+		drawPill(biasBox, ui::toColor(ui::ChangedColor), ui::toColor(ui::ChangedBorderColor));
+	else if(biasSelected)
+		drawPill(biasBox, ui::toColor(ui::AccentLightColor), ui::toColor(ui::AccentColor), 1.5f);
+	else
+		drawPill(biasBox, WHITE, ui::toColor(ui::PillBorderColor));
+	float textY = biasBox.y + (biasBox.height - measureText(value, 12).y) / 2;
+	drawText(prefix, Vector2{ biasBox.x + 7, textY }, 12, ui::toColor(ui::MutedColor));
+	drawText(value, Vector2{ biasBox.x + 7 + prefixWidth, textY }, 12, ui::toColor(ui::InkColor));
+	if(!running)
+		return;
+	// valor calculado abaixo do neurônio
 	std::string text = "y = " + formatNumber(getValue(), 2);
-	Vector2 size = measureLabel(text, 12);
-	Rectangle box = { getPosition().x - size.x / 2, (float)getPosition().y + 34, size.x,
-		size.y };
-	drawLabel(box, text, 12, WHITE, ui::toColor(ui::BorderColor), Color{ 58, 58, 58, 255 });
+	Rectangle box = pillBox(Vector2{ center.x, center.y + 43 }, text, 12, 18);
+	Color dark = ui::toColor(ui::InkColor);
+	drawPill(box, dark, dark);
+	drawTextCentered(text, Vector2{ center.x, center.y + 43 }, 12, WHITE);
 }

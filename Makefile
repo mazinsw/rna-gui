@@ -82,11 +82,9 @@ CLI_SRCS  := $(CORE_SRCS) test/test_all.cpp test/test_input.cpp test/test_traini
 GUI_SRCS  := gui/main.cpp gui/ClayRaylib.cpp gui/Widgets.cpp gui/Input.cpp \
              gui/Platform.cpp gui/Resources.cpp gui/Node.cpp gui/Edge.cpp \
              gui/InputNode.cpp gui/NeuronNode.cpp gui/OutputNode.cpp gui/NeuralNetwork.cpp \
-             gui/Execution.cpp
+             gui/Execution.cpp gui/Shapes.cpp gui/Icons.cpp
 
-IMAGES    := neuron input output funcao_linear funcao_degree funcao_bipolar \
-             funcao_logistic funcao_hiperbolic
-RES_HDRS  := $(IMAGES:%=$(GEN)/%.png.h) $(GEN)/Roboto-Regular.ttf.h
+RES_HDRS  := $(GEN)/Roboto-Regular.ttf.h
 
 CLI_OBJS  := $(CLI_SRCS:%.cpp=$(OBJDIR)/%.o)
 GUI_OBJS  := $(GUI_SRCS:%.cpp=$(OBJDIR)/%.o)
@@ -134,16 +132,12 @@ $(OBJDIR)/res/windows/app.o: res/windows/app.rc res/img/icon.ico
 	@mkdir -p $(@D)
 	$(WINDRES) -c 65001 -i $< -O coff -o $@
 
-# imagens e fonte embutidas no executável
+# fonte embutida no executável
 $(OBJDIR)/gui/Resources.o: $(RES_HDRS)
 
 $(BIN2C): tools/bin2c.cpp
 	@mkdir -p $(@D)
 	$(HOSTCXX) -O2 -o $@ $<
-
-$(GEN)/%.png.h: res/img/%.png $(BIN2C)
-	@mkdir -p $(@D)
-	$(BIN2C) $< $*_png > $@.tmp && mv $@.tmp $@
 
 $(GEN)/%.ttf.h: res/fonts/%.ttf $(BIN2C)
 	@mkdir -p $(@D)

@@ -1,6 +1,8 @@
 #include "NeuralNetwork.h"
 #include "Platform.h"
-#include "Resources.h"
+#include "Shapes.h"
+#include "Widgets.h"
+#include <cmath>
 #include <ctype.h>
 #include <fstream>
 #include <map>
@@ -80,20 +82,13 @@ static double readDouble(std::ifstream& file)
 
 NeuralNetwork::NeuralNetwork(): execution(neurons, edges), random(std::random_device()())
 {
-	neuronImg = loadTextureResource("neuron");
-	inputImg = loadTextureResource("input");
-	outputImg = loadTextureResource("output");
-	funcImgs.push_back(loadTextureResource("funcao_linear"));
-	funcImgs.push_back(loadTextureResource("funcao_degree"));
-	funcImgs.push_back(loadTextureResource("funcao_bipolar"));
-	funcImgs.push_back(loadTextureResource("funcao_logistic"));
-	funcImgs.push_back(loadTextureResource("funcao_hiperbolic"));
 	bDown = false;
 	bMoving = false;
 	x = y = downX = downY = 0;
 	nodeMoving = NULL;
 	nodeSelected = NULL;
 	edgeSelected = NULL;
+	biasSelected = NULL;
 	nodeAdd = newNeuron();
 	edgeAdd = new Edge(NULL, nodeAdd, 0);
 	actionState = ActionNone;
@@ -101,24 +96,19 @@ NeuralNetwork::NeuralNetwork(): execution(neurons, edges), random(std::random_de
 	running = false;
 	nodeToggle = NULL;
 	pressX = pressY = 0;
+	request = Request{ Request::None, NULL, NULL };
 }
 
 NeuralNetwork::~NeuralNetwork()
 {
 	clear();
-	std::vector<Texture2D>::iterator itm;
-	for(itm = funcImgs.begin(); itm != funcImgs.end(); itm++)
-		UnloadTexture(*itm);
 	delete edgeAdd;
 	delete nodeAdd;
-	UnloadTexture(outputImg);
-	UnloadTexture(inputImg);
-	UnloadTexture(neuronImg);
 }
 
 NeuronNode *NeuralNetwork::newNeuron()
 {
-	NeuronNode *neuron = new NeuronNode(neuronImg, funcImgs);
+	NeuronNode *neuron = new NeuronNode();
 	neuron->setBias(randomWeight());
 	return neuron;
 }
@@ -135,7 +125,7 @@ void NeuralNetwork::addInput()
 {
 	actionState = ActionAdd;
 	delete nodeAdd;
-	nodeAdd = new InputNode(inputImg);
+	nodeAdd = new InputNode();
 	edgeAdd->setSecond(nodeAdd);
 }
 
@@ -143,7 +133,7 @@ void NeuralNetwork::addOutput()
 {
 	actionState = ActionAdd;
 	delete nodeAdd;
-	nodeAdd = new OutputNode(outputImg);
+	nodeAdd = new OutputNode();
 	edgeAdd->setSecond(nodeAdd);
 }
 
@@ -159,10 +149,15 @@ void NeuralNetwork::addNeuron(int x, int y)
 
 void NeuralNetwork::paint(Rectangle bounds)
 {
-	DrawRectangleRec(bounds, WHITE);
-	DrawRectangleLinesEx(bounds, 1, GRAY);
-	BeginScissorMode((int)bounds.x + 1, (int)bounds.y + 1, (int)bounds.width - 2,
-		(int)bounds.height - 2);
+	DrawRectangleRec(bounds, ui::toColor(ui::CanvasColor));
+	BeginScissorMode((int)bounds.x, (int)bounds.y, (int)bounds.width, (int)bounds.height);
+	// grade de pontos a cada 20 pixels
+	Color grid = ui::toColor(ui::GridColor);
+	for(float gy = bounds.y + 10; gy < bounds.y + bounds.height; gy += 20)
+	{
+		for(float gx = bounds.x + 10; gx < bounds.x + bounds.width; gx += 20)
+			DrawRectangleRec(Rectangle{ gx - 0.75f, gy - 0.75f, 1.5f, 1.5f }, grid);
+	}
 	// desenha com a origem no canto da área de edição
 	Camera2D camera = { { bounds.x, bounds.y }, { 0, 0 }, 0, 1 };
 	BeginMode2D(camera);
@@ -171,33 +166,44 @@ void NeuralNetwork::paint(Rectangle bounds)
 	EndScissorMode();
 }
 
-void NeuralNetwork::draw()
+void NeuralNetwork::updateInfluence()
 {
+	// na edição pelo peso, na execução pelo sinal que passa na conexão
+	std::vector<double> influences;
+	double highest = 0;
 	std::vector<Edge *>::iterator ite;
 	for(ite = edges.begin(); ite != edges.end(); ite++)
 	{
 		Edge *edge = *ite;
-		edge->draw();
+		double influence = fabs(edge->getWeight());
+		if(running)
+			influence *= fabs(edge->getFirst()->getValue());
+		if(!std::isfinite(influence))
+			influence = 0;
+		influences.push_back(influence);
+		if(influence > highest)
+			highest = influence;
 	}
+	for(size_t i = 0; i < edges.size(); i++)
+		edges[i]->setInfluence(highest > 0 ? (float)(influences[i] / highest) : 0);
+}
+
+void NeuralNetwork::draw()
+{
+	updateInfluence();
+	std::vector<Edge *>::iterator ite;
+	for(ite = edges.begin(); ite != edges.end(); ite++)
+		(*ite)->drawLine();
 	if(!bMoving && actionState == ActionConnect)
-	{
-		edgeAdd->draw();
-	}
+		shapes::line(edgeAdd->getFirst()->getCenter(), nodeAdd->getCenter(), 2,
+			ui::toColor(ui::FaintColor));
+	for(ite = edges.begin(); ite != edges.end(); ite++)
+		(*ite)->drawLabel();
 	std::vector<Node *>::iterator it;
 	for(it = neurons.begin(); it != neurons.end(); it++)
-	{
-		Node *node = *it;
-		node->draw();
-	}
+		(*it)->draw(running);
 	if(actionState == ActionAdd)
-	{
-		nodeAdd->draw();
-	}
-	if(running)
-	{
-		for(it = neurons.begin(); it != neurons.end(); it++)
-			(*it)->drawValue();
-	}
+		nodeAdd->draw(false);
 }
 
 Node *NeuralNetwork::neuronAt(int x, int y)
@@ -222,6 +228,19 @@ Node *NeuralNetwork::valueAt(int x, int y)
 		Node *node = *it;
 		if(node->IsInValue(p))
 			return node;
+	}
+	return NULL;
+}
+
+NeuronNode *NeuralNetwork::biasAt(int x, int y)
+{
+	std::vector<Node *>::iterator it;
+	Point p(x, y);
+	for(it = neurons.begin(); it != neurons.end(); it++)
+	{
+		Node *node = *it;
+		if(node->is(Node::TypeNeuron) && ((NeuronNode*)node)->IsInBias(p))
+			return (NeuronNode*)node;
 	}
 	return NULL;
 }
@@ -252,11 +271,16 @@ Edge *NeuralNetwork::edgeAt(int x, int y)
 {
 	std::vector<Edge *>::iterator ite;
 	Point p(x, y);
+	// os rótulos ficam por cima das linhas
 	for(ite = edges.begin(); ite != edges.end(); ite++)
 	{
-		Edge *edge = *ite;
-		if(edge->IsIn(p))
-			return edge;
+		if((*ite)->IsInLabel(p))
+			return *ite;
+	}
+	for(ite = edges.begin(); ite != edges.end(); ite++)
+	{
+		if((*ite)->IsIn(p))
+			return *ite;
 	}
 	return NULL;
 }
@@ -323,9 +347,31 @@ void NeuralNetwork::selectEdge(Edge* edge)
 	edgeSelected->setSelected(true);
 }
 
-
-void NeuralNetwork::deleteNode(Node *node)
+void NeuralNetwork::selectBias(NeuronNode* neuron)
 {
+	if(biasSelected == neuron)
+		return;
+	if(biasSelected != NULL)
+		biasSelected->setBiasSelected(false);
+	biasSelected = neuron;
+	if(biasSelected == NULL)
+		return;
+	biasSelected->setBiasSelected(true);
+}
+
+void NeuralNetwork::removeNode(Node *node)
+{
+	if(nodeSelected == node)
+		selectNode(NULL);
+	if(biasSelected == node)
+		selectBias(NULL);
+	if(nodeMoving == node || nodeToggle == node)
+	{
+		nodeMoving = nodeToggle = NULL;
+		bMoving = bDown = false;
+	}
+	if(edgeAdd->getFirst() == node)
+		actionState = ActionNone;
 	std::vector<Edge *>::iterator ite;
 	ite = edges.begin();
 	while(ite != edges.end())
@@ -336,6 +382,8 @@ void NeuralNetwork::deleteNode(Node *node)
 			ite++;
 			continue;
 		}
+		if(edgeSelected == edge)
+			selectEdge(NULL);
 		delete *ite;
 		ite = edges.erase(ite);
 	}
@@ -353,8 +401,10 @@ void NeuralNetwork::deleteNode(Node *node)
 	modified = true;
 }
 
-void NeuralNetwork::deleteEdge(Edge* edge)
+void NeuralNetwork::removeEdge(Edge* edge)
 {
+	if(edgeSelected == edge)
+		selectEdge(NULL);
 	std::vector<Edge *>::iterator ite;
 	for(ite = edges.begin(); ite != edges.end(); ite++)
 	{
@@ -369,10 +419,43 @@ void NeuralNetwork::deleteEdge(Edge* edge)
 	modified = true;
 }
 
+void NeuralNetwork::setFunction(NeuronNode *neuron, int function)
+{
+	neuron->setFunctionType(function);
+	notifyDataChanged();
+}
+
+void NeuralNetwork::keepRightOf(int left)
+{
+	if(neurons.empty())
+		return;
+	int lowest = neurons[0]->getPosition().x;
+	std::vector<Node *>::iterator it;
+	for(it = neurons.begin(); it != neurons.end(); it++)
+	{
+		if((*it)->getPosition().x < lowest)
+			lowest = (*it)->getPosition().x;
+	}
+	if(lowest >= left)
+		return;
+	for(it = neurons.begin(); it != neurons.end(); it++)
+	{
+		const Point& p = (*it)->getPosition();
+		(*it)->setPosition(p.x + left - lowest, p.y);
+	}
+}
+
+void NeuralNetwork::setInputBias(InputNode *input, bool bias)
+{
+	input->setBias(bias);
+	notifyDataChanged();
+}
+
 void NeuralNetwork::clear()
 {
 	selectNode(NULL);
 	selectEdge(NULL);
+	selectBias(NULL);
 	std::vector<Edge *>::iterator ite;
 	for(ite = edges.begin(); ite != edges.end(); ite++)
 		delete *ite;
@@ -387,6 +470,7 @@ void NeuralNetwork::clear()
 	bDown = false;
 	bMoving = false;
 	actionState = ActionNone;
+	request = Request{ Request::None, NULL, NULL };
 }
 
 void NeuralNetwork::notifyDataChanged()
@@ -398,35 +482,138 @@ void NeuralNetwork::notifyDataChanged()
 	execution.execute();
 }
 
-void NeuralNetwork::runMouseDown(int x, int y)
+void NeuralNetwork::cancelAction()
 {
+	actionState = ActionNone;
 	nodeToggle = NULL;
-	Node *node = neuronAt(x, y);
-	if(node == NULL)
+	bMoving = false;
+	bDown = false;
+}
+
+void NeuralNetwork::pressNode(Node *node, int x, int y)
+{
+	selectEdge(NULL);
+	selectBias(NULL);
+	if(running)
 	{
-		// valor ao lado da entrada ou alvo da saída
-		node = valueAt(x, y);
-		if(node != NULL)
-			return toggle(node);
-		selectNode(NULL);
-		selectEdge(edgeAt(x, y));
-		return;
-	}
-	// entradas e saídas alternam o valor, neurônios são selecionados
-	if(node->is(Node::TypeNeuron))
-	{
-		selectEdge(NULL);
-		selectNode(node);
+		// entradas e saídas alternam o valor, neurônios são selecionados
+		if(node->is(Node::TypeNeuron))
+			selectNode(node);
+		else
+			nodeToggle = node;
 	}
 	else
-		nodeToggle = node;
+	{
+		selectNode(node);
+		if(actionState == ActionConnect)
+		{
+			actionState = ActionNone;
+			addEdge(node);
+		}
+		else
+		{
+			actionState = ActionConnect;
+			edgeAdd->setFirst(node);
+			nodeAdd->setPosition(x, y);
+		}
+	}
 	bMoving = true;
 	nodeMoving = node;
 	this->x = node->getPosition().x;
 	this->y = node->getPosition().y;
+}
+
+void NeuralNetwork::mouseDown(int x, int y)
+{
 	downX = pressX = x;
 	downY = pressY = y;
+	nodeToggle = NULL;
+	if(actionState == ActionAdd)
+	{
+		addNeuron(x, y);
+		actionState = ActionNone;
+		return;
+	}
+	Node *node = neuronAt(x, y);
+	if(node != NULL)
+	{
+		pressNode(node, x, y);
+		bDown = true;
+		return;
+	}
+	actionState = ActionNone;
+	// alvo da saída na execução
+	node = running ? valueAt(x, y) : NULL;
+	if(node != NULL)
+		return toggle(node);
+	selectNode(NULL);
+	NeuronNode *bias = biasAt(x, y);
+	if(bias != NULL)
+	{
+		selectEdge(NULL);
+		if(bias == biasSelected)
+			request = Request{ Request::EditBias, bias, NULL };
+		selectBias(bias);
+		return;
+	}
+	selectBias(NULL);
+	Edge *edge = edgeAt(x, y);
+	if(edge != NULL && edge == edgeSelected && edge->IsInLabel(Point(x, y)))
+		request = Request{ Request::EditWeight, NULL, edge };
+	selectEdge(edge);
 	bDown = true;
+}
+
+void NeuralNetwork::mouseDoubleClick(int x, int y)
+{
+	Node *node = neuronAt(x, y);
+	// na execução cada clique na entrada ou na saída alterna o valor
+	if(node != NULL && running && !node->is(Node::TypeNeuron))
+		return;
+	cancelAction();
+	if(node != NULL)
+	{
+		if(node->is(Node::TypeOutput))
+			return;
+		selectNode(node);
+		request = Request{ Request::Menu, node, NULL };
+		return;
+	}
+	NeuronNode *bias = biasAt(x, y);
+	if(bias != NULL)
+	{
+		selectBias(bias);
+		request = Request{ Request::EditBias, bias, NULL };
+		return;
+	}
+	Edge *edge = edgeAt(x, y);
+	if(edge == NULL)
+		return;
+	selectEdge(edge);
+	request = Request{ Request::EditWeight, NULL, edge };
+}
+
+void NeuralNetwork::mouseRightDown(int x, int y)
+{
+	cancelAction();
+	Node *node = neuronAt(x, y);
+	// o menu do bias é o do neurônio
+	if(node == NULL)
+		node = biasAt(x, y);
+	if(node != NULL)
+	{
+		selectEdge(NULL);
+		selectBias(NULL);
+		selectNode(node);
+		request = Request{ Request::Menu, node, NULL };
+		return;
+	}
+	Edge *edge = edgeAt(x, y);
+	selectNode(NULL);
+	selectBias(NULL);
+	selectEdge(edge);
+	if(edge != NULL)
+		request = Request{ Request::Menu, NULL, edge };
 }
 
 void NeuralNetwork::toggle(Node *node)
@@ -439,30 +626,17 @@ void NeuralNetwork::toggle(Node *node)
 	execution.execute();
 }
 
-bool NeuralNetwork::mouseDoubleClick(int x, int y)
+NeuralNetwork::Request NeuralNetwork::takeRequest()
 {
-	Node *node = neuronAt(x, y);
-	Edge *edge = node == NULL ? edgeAt(x, y) : NULL;
-	// na execução o clique na entrada alterna o valor, o diálogo fica para a
-	// edição
-	bool editable = node != NULL && (node->is(Node::TypeNeuron) ||
-		(node->is(Node::TypeInput) && !running));
-	if(!editable && edge == NULL)
-		return false;
-	actionState = ActionNone;
-	nodeToggle = NULL;
-	bMoving = false;
-	bDown = false;
-	selectNode(node);
-	selectEdge(edge);
-	return true;
+	Request result = request;
+	request = Request{ Request::None, NULL, NULL };
+	return result;
 }
 
 void NeuralNetwork::setRunning(bool running)
 {
 	this->running = running;
-	actionState = ActionNone;
-	nodeToggle = NULL;
+	cancelAction();
 	execution.clearChanged();
 	if(running)
 		execution.execute();
@@ -521,6 +695,10 @@ Node* NeuralNetwork::getSelectedNode()
 	return nodeSelected;
 }
 
+NeuronNode* NeuralNetwork::getSelectedBias()
+{
+	return biasSelected;
+}
 
 void NeuralNetwork::saveToFile(const std::string& fileName)
 {
@@ -654,19 +832,19 @@ void NeuralNetwork::loadFromFile(const std::string& fileName)
 		Node *node;
 		if(nodes[n].type == Node::TypeNeuron)
 		{
-			NeuronNode *neuron = new NeuronNode(neuronImg, funcImgs);
+			NeuronNode *neuron = new NeuronNode();
 			neuron->setFunctionType(nodes[n].function);
 			neuron->setBias(nodes[n].bias);
 			node = neuron;
 		}
 		else if(nodes[n].type == Node::TypeInput)
 		{
-			InputNode *input = new InputNode(inputImg);
+			InputNode *input = new InputNode();
 			input->setBias(nodes[n].function == 1);
 			node = input;
 		}
 		else
-			node = new OutputNode(outputImg);
+			node = new OutputNode();
 		node->setPosition(nodes[n].x, nodes[n].y);
 		neurons.push_back(node);
 	}

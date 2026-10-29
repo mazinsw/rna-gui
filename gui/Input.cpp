@@ -32,6 +32,8 @@ namespace input
 	static int pendingPresses = 0;
 	static int pendingReleases = 0;
 	static bool pendingDoubleClick = false;
+	static int pendingRightPresses = 0;
+	static bool rightPressed = false;
 	static bool pressed = false;
 	static bool released = false;
 	static bool doubleClicked = false;
@@ -57,6 +59,8 @@ namespace input
 
 	static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 	{
+		if(button == MOUSE_BUTTON_RIGHT && action == 1) // GLFW_PRESS
+			pendingRightPresses++;
 		if(button == MOUSE_BUTTON_LEFT)
 		{
 			if(action == 1) // GLFW_PRESS
@@ -93,6 +97,7 @@ namespace input
 		{
 			pressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
 			released = IsMouseButtonReleased(MOUSE_BUTTON_LEFT);
+			rightPressed = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
 			if(pressed)
 				registerPress();
 		}
@@ -100,8 +105,10 @@ namespace input
 		{
 			pressed = pendingPresses > 0;
 			released = pendingReleases > 0;
+			rightPressed = pendingRightPresses > 0;
 			pendingPresses = 0;
 			pendingReleases = 0;
+			pendingRightPresses = 0;
 		}
 		doubleClicked = pendingDoubleClick;
 		pendingDoubleClick = false;
@@ -125,5 +132,10 @@ namespace input
 	bool mouseDoubleClicked()
 	{
 		return doubleClicked;
+	}
+
+	bool mouseRightPressed()
+	{
+		return rightPressed;
 	}
 }

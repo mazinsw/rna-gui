@@ -18,11 +18,25 @@
  */
 class NeuralNetwork
 {
+public:
+	/**
+	 * Pedido da área de edição para a janela: editar um peso ou um bias no
+	 * lugar ou abrir o menu de um nó ou de uma conexão
+	 */
+	struct Request
+	{
+		enum Kind
+		{
+			None,
+			EditWeight,
+			EditBias,
+			Menu
+		};
+		Kind kind;
+		Node *node;
+		Edge *edge;
+	};
 private:
-	Texture2D neuronImg;
-	Texture2D inputImg;
-	Texture2D outputImg;
-	std::vector<Texture2D> funcImgs;
 	std::vector<Node *> neurons;
 	std::vector<Edge *> edges;
 	int x, y, downX, downY;
@@ -34,12 +48,15 @@ private:
 	Node *nodeMoving;
 	Node *nodeSelected;
 	Edge * edgeSelected;
+	// neurônio com o rótulo do bias selecionado
+	NeuronNode *biasSelected;
 	bool modified;
 	// modo de execução: as entradas e as saídas alternam entre 0 e 1 ao clicar
 	bool running;
 	// entrada ou saída que alterna o valor se o botão for solto sem arrastar
 	Node *nodeToggle;
 	int pressX, pressY;
+	Request request;
 	Execution execution;
 	std::mt19937 random;
 private:
@@ -52,14 +69,14 @@ private:
 private:
 	void selectNode(Node *node);
 	void selectEdge(Edge *edge);
-	void deleteNode(Node *node);
-	void deleteEdge(Edge *edge);
+	void selectBias(NeuronNode *neuron);
 	void addNeuron(int x, int y);
 	void addEdge(Node *node);
 	void updateAddNeuron(int x, int y);
 	void updateAddEdge(int x, int y);
 	Node *neuronAt(int x, int y);
 	Node *valueAt(int x, int y);
+	NeuronNode *biasAt(int x, int y);
 	Edge* findEdge(Node* first, Node* second);
 	Edge* edgeAt(int x, int y);
 	bool canConnect(Node* first, Node* second);
@@ -68,7 +85,13 @@ private:
 	void toggle(Node *node);
 	double randomWeight();
 	NeuronNode *newNeuron();
-	void runMouseDown(int x, int y);
+	void pressNode(Node *node, int x, int y);
+	void updateInfluence();
+
+	/**
+	 * Encerra a conexão em andamento e o arraste
+	 */
+	void cancelAction();
 public:
 	void keyDown(int key)
 	{
@@ -87,17 +110,9 @@ public:
 		else if((key == KEY_DELETE || key == KEY_BACKSPACE) && !running)
 		{
 			if(nodeSelected != NULL)
-			{
-				Node * saveNodeSelected = nodeSelected;
-				selectNode(NULL);
-				deleteNode(saveNodeSelected);
-			}
+				removeNode(nodeSelected);
 			else if(edgeSelected != NULL)
-			{
-				Edge * saveEdgeSelected = edgeSelected;
-				selectEdge(NULL);
-				deleteEdge(saveEdgeSelected);
-			}
+				removeEdge(edgeSelected);
 		}
 		else if(key == KEY_UP)
 		{
@@ -136,70 +151,33 @@ public:
 			}
 		}
 	}
-	void mouseDown(int x, int y, int button)
+
+	/**
+	 * Botão esquerdo pressionado: no nó seleciona, arrasta e conecta (na
+	 * execução alterna a entrada ou o alvo da saída); no peso ou no bias o
+	 * primeiro clique seleciona e o segundo pede a edição
+	 */
+	void mouseDown(int x, int y);
+	void mouseUp(int x, int y)
 	{
-		if (button == MOUSE_BUTTON_LEFT)
-		{
-			if(running)
-				return runMouseDown(x, y);
-			if(actionState == ActionAdd)
-			{
-				addNeuron(x, y);
-				actionState = ActionNone;
-				return;
-			}
-			Node *node = neuronAt(x, y);
-			if(node != NULL)
-			{
-				selectEdge(NULL);
-				selectNode(node);
-				bMoving = true;
-				nodeMoving = node;
-				if(actionState == ActionConnect)
-				{
-					actionState = ActionNone;
-					addEdge(node);
-				}
-				else
-				{
-					actionState = ActionConnect;
-					edgeAdd->setFirst(node);
-					nodeAdd->setPosition(x, y);
-				}
-				this->x = node->getPosition().x;
-				this->y = node->getPosition().y;
-			}
-			else
-			{
-				selectNode(node);
-				actionState = ActionNone;
-				Edge * edge = edgeAt(x, y);
-				selectEdge(edge);
-			}
-			downX = x;
-			downY = y;
-			bDown = true;
-		}
-	}
-	void mouseUp(int x, int y, int button)
-	{
-		if (button == MOUSE_BUTTON_LEFT)
-		{
-			// um clique sem arrastar alterna o valor da entrada ou da saída
-			if(nodeToggle != NULL && abs(x - pressX) <= 3 && abs(y - pressY) <= 3)
-				toggle(nodeToggle);
-			nodeToggle = NULL;
-			bMoving = false;
-			bDown = false;
-		}
+		// um clique sem arrastar alterna o valor da entrada ou da saída
+		if(nodeToggle != NULL && abs(x - pressX) <= 3 && abs(y - pressY) <= 3)
+			toggle(nodeToggle);
+		nodeToggle = NULL;
+		bMoving = false;
+		bDown = false;
 	}
 
 	/**
-	 * Clique duplo no ponto: encerra a ação iniciada pelo primeiro clique e
-	 * seleciona o neurônio ou a conexão sob o ponto. Retorna true se há algo
-	 * para alterar.
+	 * Clique duplo: pede o menu do neurônio ou da entrada e a edição do peso
+	 * ou do bias
 	 */
-	bool mouseDoubleClick(int x, int y);
+	void mouseDoubleClick(int x, int y);
+
+	/**
+	 * Botão direito: seleciona e pede o menu do nó ou da conexão
+	 */
+	void mouseRightDown(int x, int y);
 	void mouseMove(int x, int y)
 	{
 		if(actionState == ActionAdd)
@@ -243,6 +221,20 @@ public:
 	void addNeuron();
 	void addInput();
 	void addOutput();
+
+	/**
+	 * Exclui o nó e as conexões dele
+	 */
+	void removeNode(Node *node);
+	void removeEdge(Edge *edge);
+	void setFunction(NeuronNode *neuron, int function);
+
+	/**
+	 * Desloca a rede para a direita até nenhum nó ficar antes de left, a
+	 * posição não conta como alteração
+	 */
+	void keepRightOf(int left);
+	void setInputBias(InputNode *input, bool bias);
 	/**
 	 * Grava a rede, o caminho é UTF-8
 	 */
@@ -255,7 +247,7 @@ public:
 	void loadFromFile(const std::string& fileName);
 
 	/**
-	 * Informa que um nó ou conexão foi alterado fora da rede (diálogos)
+	 * Informa que um nó ou conexão foi alterado fora da rede (edição no lugar)
 	 */
 	void notifyDataChanged();
 
@@ -265,6 +257,12 @@ public:
 	bool isModified();
 	Edge* getSelectedEdge();
 	Node* getSelectedNode();
+	NeuronNode* getSelectedBias();
+
+	/**
+	 * Retorna o pedido feito pelos eventos de mouse e o descarta
+	 */
+	Request takeRequest();
 
 	/**
 	 * Entra ou sai do modo de execução

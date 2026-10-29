@@ -11,7 +11,10 @@ private:
 	double weight;
 	bool selected;
 	bool changed;
-	Vector2 sz;
+	// 0 a 1, relativa à maior da rede
+	float influence;
+	float thickness;
+	Rectangle labelBox;
 	std::string weightStr;
 protected:
 
@@ -76,8 +79,36 @@ public:
 	{
 		return changed;
 	}
-	void draw();
+
+	/**
+	 * Influência na saída de 0 a 1, define a cor e a espessura da linha
+	 */
+	inline void setInfluence(float influence)
+	{
+		this->influence = influence;
+	}
+
+	/**
+	 * Posição do rótulo do peso no último desenho
+	 */
+	inline Rectangle getLabelBox()
+	{
+		return labelBox;
+	}
+
+	void drawLine();
+
+	/**
+	 * Desenha o rótulo do peso, depois de todas as linhas para ficar por cima
+	 */
+	void drawLabel();
 	virtual bool IsIn(const Point& p);
+	bool IsInLabel(const Point& p);
+
+	/**
+	 * Do cinza ao vermelho, passando por âmbar e laranja
+	 */
+	static Color influenceColor(float influence);
 };
 
 #endif /* _EDGE_H_ */

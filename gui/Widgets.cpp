@@ -22,39 +22,127 @@ namespace ui
 			.wrapMode = wrapMode });
 	}
 
-	bool button(Clay_ElementId id, Clay_String text, bool enabled, float minWidth,
-		ButtonStyle style)
+	bool button(Clay_ElementId id, Clay_String text, bool enabled, float minWidth)
 	{
 		bool hovered = enabled && Clay_PointerOver(id);
 		if(hovered && input::mousePressed())
 			pressedId = id.id;
 		bool pressed = hovered && pressedId == id.id && input::mouseDown();
 		bool clicked = hovered && pressedId == id.id && input::mouseReleased();
-		bool primary = style == ButtonPrimary;
-		Clay_Color background = primary ? FocusColor : ButtonColor;
+		Clay_Color background = ButtonColor;
 		if(pressed)
-			background = primary ? PrimaryPressedColor : ButtonPressedColor;
+			background = ButtonPressedColor;
 		else if(hovered)
-			background = primary ? PrimaryHoverColor : ButtonHoverColor;
-		Clay_Color border = style == ButtonDefault ? BorderColor : FocusColor;
-		Clay_Color color = TextColor;
-		if(!enabled)
-			color = DisabledTextColor;
-		else if(primary)
-			color = HighlightTextColor;
-		else if(style == ButtonAccent)
-			color = AccentTextColor;
+			background = ButtonHoverColor;
 		CLAY({ .id = id,
 			.layout = { .sizing = { CLAY_SIZING_FIT(minWidth), CLAY_SIZING_FIXED(ButtonHeight) },
 				.padding = { 12, 12, 0, 0 },
 				.childAlignment = { CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER } },
 			.backgroundColor = background,
 			.cornerRadius = CLAY_CORNER_RADIUS(5),
-			.border = { .color = border, .width = CLAY_BORDER_OUTSIDE(1) } })
+			.border = { .color = BorderColor, .width = CLAY_BORDER_OUTSIDE(1) } })
 		{
+			CLAY_TEXT(text, textConfig(FontSize, enabled ? TextColor : DisabledTextColor));
+		}
+		return clicked;
+	}
+
+	/**
+	 * Estado do mouse sobre um controle: retorna true no clique e informa se
+	 * está sob o mouse e pressionado
+	 */
+	static bool track(Clay_ElementId id, bool enabled, bool& hovered, bool& pressed)
+	{
+		hovered = enabled && Clay_PointerOver(id);
+		if(hovered && input::mousePressed())
+			pressedId = id.id;
+		pressed = hovered && pressedId == id.id && input::mouseDown();
+		return hovered && pressedId == id.id && input::mouseReleased();
+	}
+
+	bool toolButton(Clay_ElementId id, icons::Icon icon, Clay_String text, bool enabled,
+		ButtonStyle style)
+	{
+		bool hovered, pressed;
+		bool clicked = track(id, enabled, hovered, pressed);
+		Clay_Color background = { 0, 0, 0, 0 };
+		Clay_Color color = enabled ? InkColor : FaintColor;
+		if(style == ButtonPrimary)
+		{
+			background = pressed ? AccentPressedColor : hovered ? AccentHoverColor : AccentColor;
+			color = HighlightTextColor;
+		}
+		else if(style == ButtonAccent)
+		{
+			background = pressed ? PressedColor : hovered ? AccentLightHoverColor :
+				AccentLightColor;
+			color = AccentHoverColor;
+		}
+		else if(pressed)
+			background = PressedColor;
+		else if(hovered)
+			background = HoverColor;
+		CLAY({ .id = id,
+			.layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(34) },
+				.padding = { 10, 10, 0, 0 }, .childGap = 10,
+				.childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER } },
+			.backgroundColor = background,
+			.cornerRadius = CLAY_CORNER_RADIUS(8) })
+		{
+			CLAY({ .layout = { .sizing = { CLAY_SIZING_FIXED(18), CLAY_SIZING_FIXED(18) } },
+				.custom = { .customData = icons::custom(icon, toColor(color)) } }) {}
 			CLAY_TEXT(text, textConfig(FontSize, color));
 		}
 		return clicked;
+	}
+
+	bool menuItem(Clay_ElementId id, CustomDraw* icon, Clay_String text, bool checked,
+		bool enabled, Clay_Color color)
+	{
+		bool hovered, pressed;
+		bool clicked = track(id, enabled, hovered, pressed);
+		Clay_Color background = { 0, 0, 0, 0 };
+		if(pressed)
+			background = PressedColor;
+		else if(hovered)
+			background = HoverColor;
+		else if(checked)
+			background = AccentLightColor;
+		CLAY({ .id = id,
+			.layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(30) },
+				.padding = { 8, 8, 0, 0 }, .childGap = 10,
+				.childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER } },
+			.backgroundColor = background,
+			.cornerRadius = CLAY_CORNER_RADIUS(6) })
+		{
+			CLAY({ .layout = { .sizing = { CLAY_SIZING_FIXED(30), CLAY_SIZING_FIXED(20) } },
+				.custom = { .customData = icon } }) {}
+			CLAY_TEXT(text, textConfig(FontSize, enabled ? color : FaintColor));
+			CLAY({ .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(1) } } }) {}
+			if(checked)
+				CLAY({ .layout = { .sizing = { CLAY_SIZING_FIXED(14), CLAY_SIZING_FIXED(14) } },
+					.custom = { .customData = icons::custom(icons::Check, toColor(AccentColor)) } }) {}
+		}
+		return clicked;
+	}
+
+	void separator(float margin)
+	{
+		CLAY({ .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0) },
+			.padding = { 4, 4, (uint16_t)margin, (uint16_t)margin } } })
+		{
+			CLAY({ .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(1) } },
+				.backgroundColor = PanelBorderColor }) {}
+		}
+	}
+
+	void groupTitle(Clay_String text)
+	{
+		CLAY({ .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0) },
+			.padding = { 8, 8, 4, 6 } } })
+		{
+			CLAY_TEXT(text, textConfig(11, MutedColor));
+		}
 	}
 
 	/**
@@ -119,10 +207,6 @@ namespace ui
 		return result;
 	}
 
-	void label(Clay_String text, uint16_t fontSize)
-	{
-		CLAY_TEXT(text, textConfig(fontSize));
-	}
 }
 
 static bool keyPressed(int key)
@@ -299,18 +383,18 @@ bool TextField::update()
 	return IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER);
 }
 
-void TextField::layout(Clay_ElementId id, uint16_t fontSize)
+void TextField::layout(Clay_ElementId id, uint16_t fontSize, float height, float radius)
 {
 	this->id = id;
 	this->fontSize = fontSize;
 	if(Clay_PointerOver(id) && input::mousePressed())
 		moveCursorTo(GetMousePosition().x);
 	CLAY({ .id = id,
-		.layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(30) },
+		.layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(height) },
 			.padding = { 8, 8, 0, 0 },
 			.childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER } },
 		.backgroundColor = ui::FieldColor,
-		.cornerRadius = CLAY_CORNER_RADIUS(4),
+		.cornerRadius = CLAY_CORNER_RADIUS(radius),
 		.clip = { .horizontal = true },
 		.border = { .color = ui::FocusColor, .width = CLAY_BORDER_OUTSIDE(2) } })
 	{
@@ -332,137 +416,6 @@ void TextField::layout(Clay_ElementId id, uint16_t fontSize)
 				.backgroundColor = ui::TextColor }) {}
 			if(!after.empty())
 				CLAY_TEXT(toClayString(after), ui::textConfig(fontSize));
-		}
-	}
-}
-
-/**
- * Seta para baixo desenhada no ComboBox
- */
-static void drawArrow(void* context, Rectangle bounds)
-{
-	Color color = { 90, 90, 90, 255 };
-	Vector2 left = { bounds.x, bounds.y };
-	Vector2 middle = { bounds.x + bounds.width / 2, bounds.y + bounds.height };
-	Vector2 right = { bounds.x + bounds.width, bounds.y };
-	DrawLineEx(left, middle, 1.5f, color);
-	DrawLineEx(middle, right, 1.5f, color);
-}
-
-static CustomDraw arrowDraw = { drawArrow, NULL };
-
-ComboBox::ComboBox()
-{
-	selected = 0;
-	open = false;
-}
-
-void ComboBox::add(const std::string& item)
-{
-	items.push_back(item);
-}
-
-int ComboBox::getSelected()
-{
-	return selected;
-}
-
-void ComboBox::setSelected(int index)
-{
-	if(index >= 0 && index < (int)items.size())
-		selected = index;
-}
-
-bool ComboBox::isOpen()
-{
-	return open;
-}
-
-bool ComboBox::close()
-{
-	if(!open)
-		return false;
-	open = false;
-	return true;
-}
-
-bool ComboBox::update()
-{
-	if(keyPressed(KEY_UP))
-		setSelected(selected - 1);
-	if(keyPressed(KEY_DOWN))
-		setSelected(selected + 1);
-	if(IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER))
-		return !close();
-	return false;
-}
-
-void ComboBox::layout(Clay_ElementId id, Clay_ElementId listId, uint16_t fontSize)
-{
-	bool hovered = Clay_PointerOver(id);
-	if(input::mousePressed())
-	{
-		if(hovered)
-			open = !open;
-		else if(open && !Clay_PointerOver(listId))
-			open = false;
-	}
-	CLAY({ .id = id,
-		.layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(30) },
-			.padding = { 8, 10, 0, 0 }, .childGap = 8,
-			.childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER } },
-		.backgroundColor = hovered ? ui::ButtonHoverColor : ui::FieldColor,
-		.cornerRadius = CLAY_CORNER_RADIUS(4),
-		.border = { .color = ui::FocusColor, .width = CLAY_BORDER_OUTSIDE(2) } })
-	{
-		if(!items.empty())
-			CLAY_TEXT(toClayString(items[selected]), ui::textConfig(fontSize));
-		CLAY({ .layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(1) } } }) {}
-		CLAY({ .layout = { .sizing = { CLAY_SIZING_FIXED(10), CLAY_SIZING_FIXED(5) } },
-			.custom = { .customData = &arrowDraw } }) {}
-		if(open)
-		{
-			Clay_ElementData data = Clay_GetElementData(id);
-			float width = data.found ? data.boundingBox.width : 280;
-			CLAY({ .id = listId,
-				.layout = { .sizing = { CLAY_SIZING_FIXED(width), CLAY_SIZING_FIT(0) },
-					.padding = { 4, 4, 4, 4 }, .layoutDirection = CLAY_TOP_TO_BOTTOM },
-				.backgroundColor = ui::FieldColor,
-				.cornerRadius = CLAY_CORNER_RADIUS(6),
-				.floating = { .offset = { 0, 2 }, .zIndex = 20,
-					.attachPoints = { .element = CLAY_ATTACH_POINT_LEFT_TOP,
-						.parent = CLAY_ATTACH_POINT_LEFT_BOTTOM },
-					.attachTo = CLAY_ATTACH_TO_PARENT },
-				.border = { .color = ui::BorderColor, .width = CLAY_BORDER_OUTSIDE(1) } })
-			{
-				// destaca o item sob o mouse, ou o selecionado se o mouse estiver fora
-				int highlighted = selected;
-				for(int i = 0; i < (int)items.size(); i++)
-				{
-					if(Clay_PointerOver(CLAY_SIDI(listId.stringId, (uint32_t)i + 1)))
-						highlighted = i;
-				}
-				for(int i = 0; i < (int)items.size(); i++)
-				{
-					Clay_ElementId itemId = CLAY_SIDI(listId.stringId, (uint32_t)i + 1);
-					if(Clay_PointerOver(itemId) && input::mousePressed())
-					{
-						selected = i;
-						open = false;
-					}
-					bool highlight = i == highlighted;
-					CLAY({ .id = itemId,
-						.layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(24) },
-							.padding = { 8, 8, 0, 0 },
-							.childAlignment = { CLAY_ALIGN_X_LEFT, CLAY_ALIGN_Y_CENTER } },
-						.backgroundColor = highlight ? ui::FocusColor : ui::FieldColor,
-						.cornerRadius = CLAY_CORNER_RADIUS(4) })
-					{
-						CLAY_TEXT(toClayString(items[i]), ui::textConfig(fontSize,
-							highlight ? ui::HighlightTextColor : ui::TextColor));
-					}
-				}
-			}
 		}
 	}
 }

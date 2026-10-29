@@ -17,20 +17,8 @@ class Node
 {
 private:
 	Point p;
-	Texture2D img;
 	bool selected;
 	double value;
-protected:
-	/**
-	 * Tamanho da caixa de drawLabel para o texto informado
-	 */
-	static Vector2 measureLabel(const std::string& text, float fontSize);
-
-	/**
-	 * Desenha o texto centralizado numa caixa de cantos arredondados
-	 */
-	static void drawLabel(Rectangle box, const std::string& text, float fontSize, Color fill,
-		Color border, Color color);
 public:
 	/**
 	 * Tipo do nó, mesmos valores gravados no arquivo
@@ -42,7 +30,7 @@ public:
 		TypeOutput
 	};
 public:
-	Node(Texture2D img);
+	Node();
 	virtual ~Node() {}
 
 	inline void setSelected(bool selected)
@@ -71,9 +59,9 @@ public:
 		return p;
 	}
 
-	inline Texture2D getImage()
+	inline Vector2 getCenter()
 	{
-		return img;
+		return Vector2{ (float)p.x, (float)p.y };
 	}
 
 	/**
@@ -97,17 +85,15 @@ public:
 
 	virtual Type getType() = 0;
 
-	virtual void draw();
+	/**
+	 * Desenha o nó, com os valores quando a rede está em execução
+	 */
+	virtual void draw(bool running) = 0;
 
 	virtual bool IsIn(const Point& p) = 0;
 
 	/**
-	 * Desenha o valor do nó durante a execução
-	 */
-	virtual void drawValue() {}
-
-	/**
-	 * Indica se o ponto está sobre um valor clicável desenhado por drawValue
+	 * Indica se o ponto está sobre um valor clicável desenhado na execução
 	 */
 	virtual bool IsInValue(const Point& p)
 	{
@@ -124,6 +110,26 @@ public:
 	 * começa com um número
 	 */
 	static bool parseNumber(const std::string& text, double& value);
+
+	static Vector2 measureText(const std::string& text, float fontSize);
+
+	/**
+	 * Texto com o canto superior esquerdo na posição
+	 */
+	static void drawText(const std::string& text, Vector2 position, float fontSize, Color color);
+	static void drawTextCentered(const std::string& text, Vector2 center, float fontSize,
+		Color color);
+
+	/**
+	 * Caixa com as pontas arredondadas, fundo dos rótulos de peso, bias e valor
+	 */
+	static void drawPill(Rectangle box, Color fill, Color border, float borderWidth = 1);
+
+	/**
+	 * Caixa do rótulo com o texto centralizado na posição
+	 */
+	static Rectangle pillBox(Vector2 center, const std::string& text, float fontSize,
+		float height);
 };
 
 #endif

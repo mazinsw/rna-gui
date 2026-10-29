@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include "ClayRaylib.h"
+#include "Icons.h"
 
 /**
  * Controles desenhados com o Clay, em modo imediato: cada quadro declara a
@@ -25,23 +26,44 @@ namespace ui
 	const Clay_Color HighlightTextColor = { 255, 255, 255, 255 };
 	const Clay_Color DialogColor = { 246, 246, 246, 255 };
 	const Clay_Color OverlayColor = { 0, 0, 0, 70 };
-	const Clay_Color PrimaryHoverColor = { 0, 108, 230, 255 };
-	const Clay_Color PrimaryPressedColor = { 0, 94, 200, 255 };
-	const Clay_Color AccentTextColor = { 0, 96, 200, 255 };
-	const Clay_Color StatusTextColor = { 80, 80, 80, 255 };
+	// área de edição e painéis flutuantes
+	const Clay_Color CanvasColor = { 248, 250, 252, 255 };
+	const Clay_Color GridColor = { 213, 220, 230, 255 };
+	const Clay_Color PanelColor = { 255, 255, 255, 255 };
+	const Clay_Color PanelBorderColor = { 226, 232, 240, 255 };
+	const Clay_Color HoverColor = { 241, 245, 249, 255 };
+	const Clay_Color PressedColor = { 226, 232, 240, 255 };
+	const Clay_Color InkColor = { 15, 23, 42, 255 };
+	const Clay_Color NodeColor = { 51, 65, 85, 255 };
+	const Clay_Color MutedColor = { 100, 116, 139, 255 };
+	const Clay_Color StatusTextColor = { 71, 85, 105, 255 };
+	const Clay_Color FaintColor = { 148, 163, 184, 255 };
+	const Clay_Color PillBorderColor = { 203, 213, 225, 255 };
+	const Clay_Color AccentColor = { 37, 99, 235, 255 };
+	const Clay_Color AccentHoverColor = { 29, 78, 216, 255 };
+	const Clay_Color AccentPressedColor = { 30, 64, 175, 255 };
+	const Clay_Color AccentLightColor = { 239, 246, 255, 255 };
+	const Clay_Color AccentLightHoverColor = { 219, 234, 254, 255 };
+	const Clay_Color AccentDarkColor = { 30, 58, 138, 255 };
+	const Clay_Color SelectionRingColor = { 37, 99, 235, 90 };
 	const Clay_Color SuccessColor = { 21, 128, 61, 255 };
+	const Clay_Color SuccessLightColor = { 220, 252, 231, 255 };
 	const Clay_Color WarningColor = { 194, 65, 12, 255 };
+	const Clay_Color WarningLightColor = { 255, 237, 213, 255 };
+	const Clay_Color ChangedColor = { 254, 243, 199, 255 };
+	const Clay_Color ChangedBorderColor = { 245, 158, 11, 255 };
+	const Clay_Color DangerColor = { 185, 28, 28, 255 };
 
 	/**
-	 * Aparência do botão
+	 * Aparência do botão do painel
 	 */
 	enum ButtonStyle
 	{
-		// fundo branco
+		// fundo transparente
 		ButtonDefault,
 		// fundo azul, para um botão ligado
 		ButtonPrimary,
-		// borda e texto azuis, para a ação principal do momento
+		// fundo azul claro, para a ação principal do momento
 		ButtonAccent
 	};
 
@@ -65,10 +87,29 @@ namespace ui
 	/**
 	 * Botão, retorna true quando clicado
 	 */
-	bool button(Clay_ElementId id, Clay_String text, bool enabled = true, float minWidth = 0,
+	bool button(Clay_ElementId id, Clay_String text, bool enabled = true, float minWidth = 0);
+
+	/**
+	 * Botão do painel com ícone e texto, ocupa a largura do painel
+	 */
+	bool toolButton(Clay_ElementId id, icons::Icon icon, Clay_String text, bool enabled = true,
 		ButtonStyle style = ButtonDefault);
 
-	void label(Clay_String text, uint16_t fontSize = FontSize);
+	/**
+	 * Item de menu com ícone, marcado quando checked
+	 */
+	bool menuItem(Clay_ElementId id, CustomDraw* icon, Clay_String text, bool checked = false,
+		bool enabled = true, Clay_Color color = InkColor);
+
+	/**
+	 * Linha horizontal entre grupos de um painel ou menu
+	 */
+	void separator(float margin);
+
+	/**
+	 * Título de um grupo do painel ou do menu
+	 */
+	void groupTitle(Clay_String text);
 
 	/**
 	 * Junta letra + acento combinante (Unicode decomposto, como o macOS
@@ -164,36 +205,8 @@ public:
 	 * Processa o teclado, retorna true quando Enter foi pressionado
 	 */
 	bool update();
-	void layout(Clay_ElementId id, uint16_t fontSize = ui::FontSize);
-};
-
-/**
- * Lista de opções que abre abaixo do controle
- */
-class ComboBox
-{
-private:
-	std::vector<std::string> items;
-	int selected;
-	bool open;
-public:
-	ComboBox();
-	void add(const std::string& item);
-	int getSelected();
-	void setSelected(int index);
-
-	/**
-	 * Fecha a lista se estiver aberta, retorna true se fechou
-	 */
-	bool close();
-	bool isOpen();
-
-	/**
-	 * Processa o teclado, retorna true quando Enter foi pressionado com a
-	 * lista fechada
-	 */
-	bool update();
-	void layout(Clay_ElementId id, Clay_ElementId listId, uint16_t fontSize = ui::FontSize);
+	void layout(Clay_ElementId id, uint16_t fontSize = ui::FontSize, float height = 30,
+		float radius = 4);
 };
 
 /**

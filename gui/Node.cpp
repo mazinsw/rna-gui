@@ -1,37 +1,14 @@
 #include "Node.h"
 #include "Resources.h"
+#include "Shapes.h"
 #include <algorithm>
 #include <stdio.h>
 #include <stdlib.h>
 
-Node::Node(Texture2D img)
+Node::Node()
 {
-	this->img = img;
 	setSelected(false);
 	setValue(0);
-}
-
-void Node::draw()
-{
-	DrawTexture(img, p.x - img.width / 2, p.y - img.height / 2, WHITE);
-}
-
-Vector2 Node::measureLabel(const std::string& text, float fontSize)
-{
-	Vector2 size = MeasureTextEx(getFont(), text.c_str(), fontSize, 0);
-	return Vector2{ size.x + 16, fontSize + 9 };
-}
-
-void Node::drawLabel(Rectangle box, const std::string& text, float fontSize, Color fill,
-	Color border, Color color)
-{
-	// cantos com raio 6
-	float roundness = 12 / (box.width < box.height ? box.width : box.height);
-	Vector2 size = MeasureTextEx(getFont(), text.c_str(), fontSize, 0);
-	DrawRectangleRounded(box, roundness, 4, fill);
-	DrawRectangleRoundedLinesEx(box, roundness, 4, 1.0f, border);
-	DrawTextEx(getFont(), text.c_str(), Vector2{ roundf(box.x + (box.width - size.x) / 2),
-		roundf(box.y + (box.height - size.y) / 2) }, fontSize, 0, color);
 }
 
 std::string Node::formatNumber(double value, int digits)
@@ -66,4 +43,34 @@ bool Node::parseNumber(const std::string& text, double& value)
 		return false;
 	value = result;
 	return true;
+}
+
+Vector2 Node::measureText(const std::string& text, float fontSize)
+{
+	return MeasureTextEx(getFont(), text.c_str(), fontSize, 0);
+}
+
+void Node::drawText(const std::string& text, Vector2 position, float fontSize, Color color)
+{
+	DrawTextEx(getFont(), text.c_str(), Vector2{ roundf(position.x), roundf(position.y) },
+		fontSize, 0, color);
+}
+
+void Node::drawTextCentered(const std::string& text, Vector2 center, float fontSize,
+	Color color)
+{
+	Vector2 size = measureText(text, fontSize);
+	drawText(text, Vector2{ center.x - size.x / 2, center.y - size.y / 2 }, fontSize, color);
+}
+
+void Node::drawPill(Rectangle box, Color fill, Color border, float borderWidth)
+{
+	shapes::fillRoundedRect(box, box.height / 2, fill);
+	shapes::strokeRoundedRect(box, box.height / 2, borderWidth, border);
+}
+
+Rectangle Node::pillBox(Vector2 center, const std::string& text, float fontSize, float height)
+{
+	float width = measureText(text, fontSize).x + 14;
+	return Rectangle{ center.x - width / 2, center.y - height / 2, width, height };
 }

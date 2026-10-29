@@ -1,6 +1,7 @@
 // Baseado em renderers/raylib/clay_renderer_raylib.c do Clay (zlib)
 #define CLAY_IMPLEMENTATION
 #include "ClayRaylib.h"
+#include "Shapes.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,18 +24,6 @@ static Color toColor(Clay_Color color)
 	result.b = (unsigned char)roundf(color.b);
 	result.a = (unsigned char)roundf(color.a);
 	return result;
-}
-
-/**
- * Converte o raio em pixels para o "roundness" do raylib
- */
-static float roundness(Rectangle rect, float radius)
-{
-	float smaller = rect.width < rect.height ? rect.width : rect.height;
-	if(smaller <= 0)
-		return 0;
-	float result = radius * 2 / smaller;
-	return result > 1 ? 1 : result;
 }
 
 static Clay_Dimensions measureText(Clay_StringSlice text, Clay_TextElementConfig* config,
@@ -79,7 +68,7 @@ static void drawBorder(Rectangle rect, const Clay_BorderRenderData& border)
 	if(uniform && width.left > 0)
 	{
 		if(radius > 0)
-			DrawRectangleRoundedLinesEx(rect, roundness(rect, radius), 8, width.left, color);
+			shapes::strokeRoundedRect(rect, radius, width.left, color);
 		else
 			DrawRectangleLinesEx(rect, width.left, color);
 		return;
@@ -109,7 +98,7 @@ void ClayRaylib_Render(Clay_RenderCommandArray commands, Font* fonts)
 		{
 			Clay_RectangleRenderData& data = command->renderData.rectangle;
 			if(data.cornerRadius.topLeft > 0)
-				DrawRectangleRounded(rect, roundness(rect, data.cornerRadius.topLeft), 8,
+				shapes::fillRoundedRect(rect, data.cornerRadius.topLeft,
 					toColor(data.backgroundColor));
 			else
 				DrawRectangleRec(rect, toColor(data.backgroundColor));

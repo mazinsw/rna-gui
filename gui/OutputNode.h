@@ -15,11 +15,10 @@ public:
 	 */
 	static constexpr double Tolerance = 0.05;
 public:
-	OutputNode(Texture2D img);
+	OutputNode();
 	virtual Type getType() { return TypeOutput; }
 	virtual bool IsIn(const Point& p);
-	virtual void draw();
-	virtual void drawValue();
+	virtual void draw(bool running);
 	virtual bool IsInValue(const Point& p);
 
 	/**

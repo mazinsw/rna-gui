@@ -1,15 +1,14 @@
 #ifndef _NEURONNODE_H_
 #define _NEURONNODE_H_
-#include <vector>
 #include "Node.h"
 
 class NeuronNode: public Node
 {
 private:
 	int functionType;
-	std::vector<Texture2D>& funcImgs;
 	double bias;
 	bool biasChanged;
+	bool biasSelected;
 	Rectangle biasBox;
 protected:
 public:
@@ -23,11 +22,23 @@ public:
 		FunctionCount
 	};
 public:
-	NeuronNode(Texture2D img, std::vector<Texture2D>& funcImgs);
+	NeuronNode();
 	virtual Type getType() { return TypeNeuron; }
 	virtual bool IsIn(const Point& p);
-	virtual void draw();
-	virtual void drawValue();
+	virtual void draw(bool running);
+
+	/**
+	 * Indica se o ponto está sobre o rótulo do bias, acima do neurônio
+	 */
+	bool IsInBias(const Point& p);
+
+	/**
+	 * Posição do rótulo do bias no último desenho
+	 */
+	inline Rectangle getBiasBox()
+	{
+		return biasBox;
+	}
 
 	inline int getFunctionType()
 	{
@@ -58,6 +69,11 @@ public:
 	inline void setBiasChanged(bool changed)
 	{
 		biasChanged = changed;
+	}
+
+	inline void setBiasSelected(bool selected)
+	{
+		biasSelected = selected;
 	}
 };
 
