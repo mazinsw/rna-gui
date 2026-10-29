@@ -2,14 +2,22 @@
 #include <raylib.h>
 #include <stddef.h>
 
-// o raylib embute o GLFW mas não distribui seus headers
+// o raylib usa o GLFW mas não distribui seus headers. Fora do Windows as
+// referências são fracas: um raylib dinâmico pode não exportar o GLFW. No
+// Windows o GLFW sempre é linkado estático.
+#if defined(_WIN32)
+#define GLFW_IMPORT
+#else
+#define GLFW_IMPORT __attribute__((weak))
+#endif
+
 extern "C"
 {
 	typedef struct GLFWwindow GLFWwindow;
 	typedef void (*GLFWmousebuttonfun)(GLFWwindow* window, int button, int action, int mods);
-	GLFWwindow* glfwGetCurrentContext(void) __attribute__((weak));
+	GLFWwindow* glfwGetCurrentContext(void) GLFW_IMPORT;
 	GLFWmousebuttonfun glfwSetMouseButtonCallback(GLFWwindow* window,
-		GLFWmousebuttonfun callback) __attribute__((weak));
+		GLFWmousebuttonfun callback) GLFW_IMPORT;
 }
 
 namespace input
@@ -36,13 +44,17 @@ namespace input
 
 	void install()
 	{
-		// GetWindowHandle() retorna a janela nativa (NSWindow no macOS), não a do GLFW
-		if(glfwGetCurrentContext == NULL || glfwSetMouseButtonCallback == NULL)
+		// referências fracas ficam NULL quando o símbolo não existe
+		GLFWwindow* (*getCurrentContext)(void) = glfwGetCurrentContext;
+		GLFWmousebuttonfun (*setMouseButtonCallback)(GLFWwindow*, GLFWmousebuttonfun) =
+			glfwSetMouseButtonCallback;
+		if(getCurrentContext == NULL || setMouseButtonCallback == NULL)
 			return;
-		GLFWwindow* window = glfwGetCurrentContext();
+		// GetWindowHandle() retorna a janela nativa (NSWindow no macOS), não a do GLFW
+		GLFWwindow* window = getCurrentContext();
 		if(window == NULL)
 			return;
-		raylibCallback = glfwSetMouseButtonCallback(window, mouseButtonCallback);
+		raylibCallback = setMouseButtonCallback(window, mouseButtonCallback);
 		installed = true;
 	}
 

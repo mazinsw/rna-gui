@@ -191,8 +191,12 @@ public:
 
 int main()
 {
-	SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT |
-		FLAG_VSYNC_HINT);
+	unsigned int flags = FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT;
+#if defined(__APPLE__)
+	// Retina; no Windows e no Linux a janela usa pixels físicos
+	flags |= FLAG_WINDOW_HIGHDPI;
+#endif
+	SetConfigFlags(flags);
 	SetTraceLogLevel(LOG_WARNING);
 	InitWindow(800, 600, "Redes Neurais Artificiais");
 	if(!IsWindowReady())

@@ -1,22 +1,52 @@
 # Redes Neurais
 
-## Compilando no macOS
+## Compilando
 
-A interface usa [Clay](https://github.com/nicbarker/clay) (incluído em `third_party/clay`) e [raylib](https://www.raylib.com/).
-Requer as Command Line Tools do Xcode e o raylib:
+A interface usa [Clay](https://github.com/nicbarker/clay) (incluído em `third_party/clay`) e
+[raylib](https://www.raylib.com/) 5.5 ou superior. O mesmo `Makefile` atende macOS, Linux e Windows:
 
 ```
-brew install raylib
 make            # build/NeuralNetwork (interface) e build/RedesNeurais (console)
 make run        # abre a interface
-make app        # gera build/NeuralNetwork.app
 make test       # executa o console com testes_treinamento.txt
 ```
 
-A rede desenhada na interface é salva em `~/Library/Application Support/RedesNeurais/NeuralNetWork.bin`,
-no mesmo formato da versão Windows.
+Se o sistema não tiver raylib 5.5 ou superior, `make raylib` baixa e compila o raylib 6.2 em
+`third_party/` e o build passa a usá-lo.
 
-No Linux o Makefile procura o raylib com `pkg-config` (não testado).
+### macOS
+
+Requer as Command Line Tools do Xcode e `brew install raylib`. `make app` gera `build/NeuralNetwork.app`.
+
+### Linux
+
+No Fedora: `sudo dnf install gcc-c++ make raylib-devel`. Debian e Ubuntu não têm pacote do raylib,
+instale as dependências e use o `make raylib`:
+
+```
+sudo apt install build-essential curl pkg-config libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl-dev
+make raylib
+make
+```
+
+### Windows
+
+No terminal UCRT64 do [MSYS2](https://www.msys2.org/):
+
+```
+pacman -S make mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-pkgconf mingw-w64-ucrt-x86_64-raylib
+make
+```
+
+Os executáveis são linkados estáticos e rodam fora do MSYS2.
+
+### Arquivo da rede
+
+A rede desenhada na interface é salva no mesmo formato da versão Windows original em:
+
+- macOS: `~/Library/Application Support/RedesNeurais/NeuralNetWork.bin`
+- Linux: `~/.local/share/RedesNeurais/NeuralNetWork.bin`
+- Windows: `%APPDATA%\RedesNeurais\NeuralNetWork.bin`
 
 ## Console
 
