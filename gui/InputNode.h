@@ -6,6 +6,7 @@ class InputNode: public Node
 {
 private:
 	Rectangle valueBox;
+	bool bias;
 public:
 	InputNode(Texture2D img);
 	virtual Type getType() { return TypeInput; }
@@ -15,11 +16,26 @@ public:
 	virtual bool IsInValue(const Point& p);
 
 	/**
-	 * Alterna o valor da entrada entre 0 e 1
+	 * Alterna o valor da entrada entre 0 e 1, o bias fica sempre em 1
 	 */
 	inline void toggleValue()
 	{
-		setValue(getValue() != 0 ? 0 : 1);
+		if(!bias)
+			setValue(getValue() != 0 ? 0 : 1);
+	}
+
+	/**
+	 * Entrada de bias: valor fixo 1, alternativa ao bias de cada neurônio
+	 */
+	inline bool isBias()
+	{
+		return bias;
+	}
+
+	inline void setBias(bool bias)
+	{
+		this->bias = bias;
+		setValue(bias ? 1 : 0);
 	}
 };
 

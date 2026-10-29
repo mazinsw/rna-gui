@@ -64,10 +64,10 @@ private:
 	Edge* edgeAt(int x, int y);
 	bool canConnect(Node* first, Node* second);
 	void clear();
-	void clearChanged();
 	void draw();
 	void toggle(Node *node);
 	double randomWeight();
+	NeuronNode *newNeuron();
 	void runMouseDown(int x, int y);
 public:
 	void keyDown(int key)

@@ -186,6 +186,7 @@ public:
 	 * Fecha a lista se estiver aberta, retorna true se fechou
 	 */
 	bool close();
+	bool isOpen();
 
 	/**
 	 * Processa o teclado, retorna true quando Enter foi pressionado com a

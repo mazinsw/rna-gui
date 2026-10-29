@@ -373,6 +373,11 @@ void ComboBox::setSelected(int index)
 		selected = index;
 }
 
+bool ComboBox::isOpen()
+{
+	return open;
+}
+
 bool ComboBox::close()
 {
 	if(!open)

@@ -1,7 +1,5 @@
 #ifndef _EDGEPROPERTIES_H_
 #define _EDGEPROPERTIES_H_
-#include <algorithm>
-#include <stdlib.h>
 #include "Widgets.h"
 #include "Edge.h"
 
@@ -15,12 +13,9 @@ private:
 private:
 	void salvar()
 	{
-		std::string str = editPeso.getText();
-		std::replace(str.begin(), str.end(), ',', '.');
-		char* end;
-		double weight = strtod(str.c_str(), &end);
+		double weight;
 		// mantém o peso anterior se não for um número
-		if(end != str.c_str())
+		if(Node::parseNumber(editPeso.getText(), weight))
 		{
 			edge->setWeight(weight);
 			saved = true;

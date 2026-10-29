@@ -1,6 +1,8 @@
 #include "Node.h"
 #include "Resources.h"
+#include <algorithm>
 #include <stdio.h>
+#include <stdlib.h>
 
 Node::Node(Texture2D img)
 {
@@ -52,4 +54,16 @@ std::string Node::formatNumber(double value, int digits)
 	if(dot != std::string::npos)
 		s[dot] = ',';
 	return s;
+}
+
+bool Node::parseNumber(const std::string& text, double& value)
+{
+	std::string str = text;
+	std::replace(str.begin(), str.end(), ',', '.');
+	char* end;
+	double result = strtod(str.c_str(), &end);
+	if(end == str.c_str())
+		return false;
+	value = result;
+	return true;
 }

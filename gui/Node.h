@@ -118,6 +118,12 @@ public:
 	 * Número com vírgula decimal, no máximo digits casas e sem zeros à direita
 	 */
 	static std::string formatNumber(double value, int digits);
+
+	/**
+	 * Lê um número com vírgula ou ponto decimal, retorna false se o texto não
+	 * começa com um número
+	 */
+	static bool parseNumber(const std::string& text, double& value);
 };
 
 #endif

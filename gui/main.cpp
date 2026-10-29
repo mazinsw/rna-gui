@@ -19,6 +19,7 @@ private:
 	CustomDraw neuralNetworkDraw;
 	EdgePropertyDialog edgePropertyDialog;
 	NodePropertyDialog nodePropertyDialog;
+	InputPropertyDialog inputPropertyDialog;
 	MessageDialog messageDialog;
 	ConfirmDialog confirmDialog;
 	// arquivo aberto, onde "Salvar" grava (UTF-8)
@@ -39,9 +40,10 @@ private:
 	}
 	void changeNodeProperties(Node* node)
 	{
-		if(!node->is(Node::TypeNeuron))
-			return;
-		nodePropertyDialog.show((NeuronNode*)node);
+		if(node->is(Node::TypeNeuron))
+			nodePropertyDialog.show((NeuronNode*)node);
+		else if(node->is(Node::TypeInput))
+			inputPropertyDialog.show((InputNode*)node);
 	}
 	void changeEdgeProperties(Edge* edge)
 	{
@@ -126,7 +128,8 @@ private:
 	bool isDialogVisible()
 	{
 		return messageDialog.isVisible() || confirmDialog.isVisible() ||
-			edgePropertyDialog.isVisible() || nodePropertyDialog.isVisible();
+			edgePropertyDialog.isVisible() || nodePropertyDialog.isVisible() ||
+			inputPropertyDialog.isVisible();
 	}
 	void dropFiles()
 	{
@@ -156,6 +159,8 @@ private:
 			return edgePropertyDialog.update();
 		if(nodePropertyDialog.isVisible())
 			return nodePropertyDialog.update();
+		if(inputPropertyDialog.isVisible())
+			return inputPropertyDialog.update();
 		const int keys[] = { KEY_ESCAPE, KEY_DELETE, KEY_BACKSPACE, KEY_UP, KEY_DOWN, KEY_LEFT,
 			KEY_RIGHT };
 		for(int key : keys)
@@ -190,7 +195,8 @@ private:
 	bool updateDialogs()
 	{
 		bool changed = false;
-		if(edgePropertyDialog.takeSaved() || nodePropertyDialog.takeSaved())
+		if(edgePropertyDialog.takeSaved() || nodePropertyDialog.takeSaved() ||
+			inputPropertyDialog.takeSaved())
 		{
 			neuralNetwork->notifyDataChanged();
 			message.clear();
@@ -225,8 +231,8 @@ private:
 		else if(neuralNetwork->isConnecting())
 			status = "Clique em outro nó para conectar. Esc cancela.";
 		else
-			status = "Clique duplo em um neurônio ou conexão para alterar. Novas conexões "
-				"começam com peso aleatório.";
+			status = "Clique duplo em um neurônio, entrada ou conexão para alterar. Pesos e bias "
+				"novos começam aleatórios.";
 	}
 	void layout()
 	{
@@ -287,6 +293,8 @@ private:
 			edgePropertyDialog.layout();
 		else if(nodePropertyDialog.isVisible())
 			nodePropertyDialog.layout();
+		else if(inputPropertyDialog.isVisible())
+			inputPropertyDialog.layout();
 	}
 	/**
 	 * Mostra no título o arquivo aberto e um * se houver alterações

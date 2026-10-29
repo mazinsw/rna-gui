@@ -48,8 +48,8 @@ private:
 	void visit(Node* node, std::map<Node*, int>& state);
 	bool hasOutput();
 	/**
-	 * Ajusta os pesos uma vez, retorna false se algum peso deixaria de ser
-	 * um número finito
+	 * Ajusta os pesos e os bias uma vez, retorna false se algum deixaria de
+	 * ser um número finito
 	 */
 	bool step();
 public:
@@ -67,6 +67,11 @@ public:
 	}
 
 	/**
+	 * Remove a marca de alterado dos pesos e dos bias
+	 */
+	void clearChanged();
+
+	/**
 	 * Soma das diferenças entre o alvo e o valor de cada saída
 	 */
 	double getError();
@@ -78,7 +83,7 @@ public:
 
 	/**
 	 * Treina até as saídas ficarem iguais aos alvos ou chegar ao limite de
-	 * iterações, marca os pesos alterados
+	 * iterações, marca os pesos e os bias alterados
 	 */
 	TrainResult train();
 };

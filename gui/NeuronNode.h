@@ -8,6 +8,9 @@ class NeuronNode: public Node
 private:
 	int functionType;
 	std::vector<Texture2D>& funcImgs;
+	double bias;
+	bool biasChanged;
+	Rectangle biasBox;
 protected:
 public:
 	enum FunctionType
@@ -34,6 +37,27 @@ public:
 	inline void setFunctionType(int functionType)
 	{
 		this->functionType = functionType;
+	}
+
+	/**
+	 * Somado à entrada da função de ativação, faz o papel do limiar negativo
+	 */
+	inline double getBias()
+	{
+		return bias;
+	}
+
+	inline void setBias(double bias)
+	{
+		this->bias = bias;
+	}
+
+	/**
+	 * Marca o bias como alterado pelo último treinamento
+	 */
+	inline void setBiasChanged(bool changed)
+	{
+		biasChanged = changed;
 	}
 };
 

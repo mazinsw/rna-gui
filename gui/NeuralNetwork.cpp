@@ -8,13 +8,17 @@
 #include <stdint.h>
 #include <string.h>
 #define RN_SIGN "1.1"
+#define RN_SIGN_BIAS "1.2"
 
 /*
  * Formato do arquivo, little-endian com tamanhos fixos para ser o mesmo em
- * qualquer plataforma (compatível com o gravado pela versão Windows 32 bits):
+ * qualquer plataforma. A versão 1.1 é a gravada pela versão Windows 32 bits:
  * sign[3] neuronCount:u32 edgeCount:u32
  * neuronCount x (type:i32 function:i32 x:i32 y:i32)
  * edgeCount x (first:i32 second:i32 weight:f64)
+ * A versão 1.2 acrescenta bias:f64 a cada nó e usa function da entrada para
+ * marcar a entrada de bias (1). É gravada só quando a rede usa algum bias, as
+ * demais continuam em 1.1.
  */
 
 static void writeUInt32(std::ofstream& file, uint32_t value)
@@ -90,7 +94,7 @@ NeuralNetwork::NeuralNetwork(): execution(neurons, edges), random(std::random_de
 	nodeMoving = NULL;
 	nodeSelected = NULL;
 	edgeSelected = NULL;
-	nodeAdd = new NeuronNode(neuronImg, funcImgs);
+	nodeAdd = newNeuron();
 	edgeAdd = new Edge(NULL, nodeAdd, 0);
 	actionState = ActionNone;
 	modified = false;
@@ -112,11 +116,18 @@ NeuralNetwork::~NeuralNetwork()
 	UnloadTexture(neuronImg);
 }
 
+NeuronNode *NeuralNetwork::newNeuron()
+{
+	NeuronNode *neuron = new NeuronNode(neuronImg, funcImgs);
+	neuron->setBias(randomWeight());
+	return neuron;
+}
+
 void NeuralNetwork::addNeuron()
 {
 	actionState = ActionAdd;
 	delete nodeAdd;
-	nodeAdd = new NeuronNode(neuronImg, funcImgs);
+	nodeAdd = newNeuron();
 	edgeAdd->setSecond(nodeAdd);
 }
 
@@ -141,7 +152,7 @@ void NeuralNetwork::addNeuron(int x, int y)
 	Node *node = nodeAdd;
 	node->setPosition(x, y);
 	neurons.push_back(node);
-	nodeAdd = new NeuronNode(neuronImg, funcImgs);
+	nodeAdd = newNeuron();
 	edgeAdd->setSecond(nodeAdd);
 	modified = true;
 }
@@ -378,19 +389,12 @@ void NeuralNetwork::clear()
 	actionState = ActionNone;
 }
 
-void NeuralNetwork::clearChanged()
-{
-	std::vector<Edge *>::iterator ite;
-	for(ite = edges.begin(); ite != edges.end(); ite++)
-		(*ite)->setChanged(false);
-}
-
 void NeuralNetwork::notifyDataChanged()
 {
 	modified = true;
 	if(!running)
 		return;
-	clearChanged();
+	execution.clearChanged();
 	execution.execute();
 }
 
@@ -431,7 +435,7 @@ void NeuralNetwork::toggle(Node *node)
 		((InputNode*)node)->toggleValue();
 	else if(node->is(Node::TypeOutput))
 		((OutputNode*)node)->toggleTarget();
-	clearChanged();
+	execution.clearChanged();
 	execution.execute();
 }
 
@@ -439,7 +443,11 @@ bool NeuralNetwork::mouseDoubleClick(int x, int y)
 {
 	Node *node = neuronAt(x, y);
 	Edge *edge = node == NULL ? edgeAt(x, y) : NULL;
-	if((node == NULL || !node->is(Node::TypeNeuron)) && edge == NULL)
+	// na execução o clique na entrada alterna o valor, o diálogo fica para a
+	// edição
+	bool editable = node != NULL && (node->is(Node::TypeNeuron) ||
+		(node->is(Node::TypeInput) && !running));
+	if(!editable && edge == NULL)
 		return false;
 	actionState = ActionNone;
 	nodeToggle = NULL;
@@ -455,7 +463,7 @@ void NeuralNetwork::setRunning(bool running)
 	this->running = running;
 	actionState = ActionNone;
 	nodeToggle = NULL;
-	clearChanged();
+	execution.clearChanged();
 	if(running)
 		execution.execute();
 }
@@ -525,7 +533,16 @@ void NeuralNetwork::saveToFile(const std::string& fileName)
 
 	if(!file)
 		throw std::runtime_error("Unable to create " + fileName + ".");
-	file.write(RN_SIGN, 3); // sign
+	// 1.1 enquanto não há bias, para continuar abrindo na versão Windows
+	bool hasBias = false;
+	for(it = neurons.begin(); it != neurons.end(); it++)
+	{
+		Node *node = *it;
+		if((node->is(Node::TypeNeuron) && ((NeuronNode*)node)->getBias() != 0) ||
+			(node->is(Node::TypeInput) && ((InputNode*)node)->isBias()))
+			hasBias = true;
+	}
+	file.write(hasBias ? RN_SIGN_BIAS : RN_SIGN, 3); // sign
 	writeUInt32(file, (uint32_t)neurons.size()); // neuron count
 	writeUInt32(file, (uint32_t)edges.size()); // edge count
 	// save each neuron
@@ -536,11 +553,20 @@ void NeuralNetwork::saveToFile(const std::string& fileName)
 		writeInt32(file, intVal); // type, 1 -> Neuron, 2 -> Input, 3 ->Output
 		if(node->is(Node::TypeNeuron))
 			intVal = ((NeuronNode*)node)->getFunctionType();
+		else if(node->is(Node::TypeInput) && ((InputNode*)node)->isBias())
+			intVal = 1;
 		else
 			intVal = 0;
-		writeInt32(file, intVal); // activation function
+		writeInt32(file, intVal); // activation function, 1 on a bias input
 		writeInt32(file, node->getPosition().x); // x position
 		writeInt32(file, node->getPosition().y); // y position
+		if(hasBias)
+		{
+			double bias = 0;
+			if(node->is(Node::TypeNeuron))
+				bias = ((NeuronNode*)node)->getBias();
+			writeDouble(file, bias); // neuron bias
+		}
 		nodeMap[node] = i;
 		i++;
 	}
@@ -562,6 +588,7 @@ void NeuralNetwork::loadFromFile(const std::string& fileName)
 	struct NodeData
 	{
 		int type, function, x, y;
+		double bias;
 	};
 	struct EdgeData
 	{
@@ -580,12 +607,13 @@ void NeuralNetwork::loadFromFile(const std::string& fileName)
 		throw std::runtime_error("Unable to open " + fileName + ".");
 	ver[3] = '\0';
 	readBytes(file, ver, 3); // sign
-	if(strcmp((const char*)ver, RN_SIGN) != 0)
+	bool hasBias = strcmp((const char*)ver, RN_SIGN_BIAS) == 0;
+	if(!hasBias && strcmp((const char*)ver, RN_SIGN) != 0)
 	{
 		if(!isprint(ver[0]) || !isprint(ver[1]) || !isprint(ver[2]))
 			throw std::runtime_error("Not a neural network file.");
 		throw std::runtime_error(std::string("Version ") + (const char*)ver +
-			" not supported, required " RN_SIGN ".");
+			" not supported, required " RN_SIGN " or " RN_SIGN_BIAS ".");
 	}
 	neuronCount = readUInt32(file); // neuron count
 	edgeCount = readUInt32(file); // edge count
@@ -598,9 +626,15 @@ void NeuralNetwork::loadFromFile(const std::string& fileName)
 		node.function = readInt32(file); // activation function
 		node.x = readInt32(file); // x position
 		node.y = readInt32(file); // y position
+		node.bias = hasBias ? readDouble(file) : 0; // neuron bias
 		if(node.type == Node::TypeNeuron &&
 			(node.function < 0 || node.function >= NeuronNode::FunctionCount))
 			throw std::runtime_error("Invalid activation function.");
+		// a 1.1 não marca entradas de bias
+		if(node.type == Node::TypeInput && !hasBias)
+			node.function = 0;
+		if(node.type == Node::TypeInput && node.function != 0 && node.function != 1)
+			throw std::runtime_error("Invalid input kind.");
 		nodes.push_back(node);
 	}
 	for(i = 0; i < edgeCount; i++)
@@ -622,10 +656,15 @@ void NeuralNetwork::loadFromFile(const std::string& fileName)
 		{
 			NeuronNode *neuron = new NeuronNode(neuronImg, funcImgs);
 			neuron->setFunctionType(nodes[n].function);
+			neuron->setBias(nodes[n].bias);
 			node = neuron;
 		}
 		else if(nodes[n].type == Node::TypeInput)
-			node = new InputNode(inputImg);
+		{
+			InputNode *input = new InputNode(inputImg);
+			input->setBias(nodes[n].function == 1);
+			node = input;
+		}
 		else
 			node = new OutputNode(outputImg);
 		node->setPosition(nodes[n].x, nodes[n].y);

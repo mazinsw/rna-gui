@@ -42,7 +42,7 @@ Os executáveis são linkados estáticos e rodam fora do MSYS2.
 
 ### Arquivo da rede
 
-A rede desenhada na interface é salva no mesmo formato da versão Windows original em:
+A rede desenhada na interface é salva em:
 
 - macOS: `~/Library/Application Support/RedesNeurais/NeuralNetWork.bin`
 - Linux: `~/.local/share/RedesNeurais/NeuralNetWork.bin`
@@ -51,15 +51,23 @@ A rede desenhada na interface é salva no mesmo formato da versão Windows origi
 Para abrir outra rede, arraste o arquivo para a janela. O título mostra o arquivo aberto, com `*`
 quando há alterações não salvas, e "Salvar" grava nesse arquivo.
 
+O arquivo é gravado no formato 1.1 da versão Windows original enquanto nenhum bias é usado. Com bias
+em algum neurônio ou uma entrada de bias ele passa para o formato 1.2, que a versão original não
+abre. A interface lê os dois.
+
 ### Editando e executando
 
 Clique em um nó e depois em outro para conectá-los. A conexão começa com peso aleatório entre -1 e
 1, e a conexão com uma saída com peso 1. Clique duplo em um neurônio altera a função de ativação e
-em uma conexão altera o peso.
+o bias, em uma entrada altera o tipo e em uma conexão altera o peso.
+
+Cada neurônio tem um bias (`b`, mostrado acima dele) somado à entrada da função de ativação, que faz
+o papel do limiar negativo. Ele começa aleatório e é treinado junto com os pesos. Para modelar o
+bias como entrada, use uma entrada do tipo "Bias": ela vale sempre 1 e o peso da conexão é o bias.
 
 "Executar" liga o modo de execução: clique nas entradas para alternar o valor entre 0 e 1 e nas
 saídas para alternar o alvo. Cada neurônio mostra o valor calculado e a saída fica verde quando é
-igual ao alvo. "Treinar" ajusta os pesos por retropropagação com os valores atuais até a saída
+igual ao alvo. "Treinar" ajusta os pesos e os bias por retropropagação com os valores atuais até a saída
 ficar igual ao alvo (taxa de aprendizado 0,1, no máximo 1000 iterações) e destaca os pesos
 alterados. Treine cada linha da tabela verdade até todas acertarem. "Parar" volta à edição.
 
@@ -68,14 +76,15 @@ alterados. Treine cada linha da tabela verdade até todas acertarem. "Parar" vol
 A pasta `exemplos/` tem redes prontas para as funções lógicas AND, OR e XOR, com neurônios de
 função degrau:
 
-- `and.bin`, `or.bin` e `xor.bin`: arraste para a janela da interface.
+- `and.bin`, `or.bin` e `xor.bin`: arraste para a janela da interface. Têm as 2 entradas da função
+  e o bias em cada neurônio.
 - `and.txt`, `or.txt` e `xor.txt`: a mesma rede no formato do console, com as 4 amostras da tabela
-  verdade: `build/RedesNeurais < exemplos/xor.txt`.
+  verdade: `build/RedesNeurais < exemplos/xor.txt`. O console não tem bias no neurônio, então a
+  primeira entrada é o bias, sempre 1, e o peso dela faz o papel do bias.
 
-A primeira entrada é o bias, sempre 1, e o peso dela é o limiar negativo do neurônio: no AND o
-neurônio dispara quando `x1 + x2 - 1,5 >= 0`, no OR quando `x1 + x2 - 0,5 >= 0`. Na interface,
-ligue a entrada do bias ao executar. O XOR não é linearmente separável e usa uma camada oculta: um
-neurônio OR, um AND e a saída `OR - AND - 0,5`.
+O bias é o limiar negativo do neurônio: no AND o neurônio dispara quando `x1 + x2 - 1,5 >= 0`, no OR
+quando `x1 + x2 - 0,5 >= 0`. O XOR não é linearmente separável e usa uma camada oculta: um neurônio
+OR, um AND e a saída `OR - AND - 0,5`.
 
 ## Console
 

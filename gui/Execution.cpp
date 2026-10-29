@@ -80,7 +80,10 @@ bool Execution::execute()
 		for(Edge* edge : incoming[node])
 			sum += edge->getWeight() * edge->getFirst()->getValue();
 		if(node->is(Node::TypeNeuron))
-			sum = functions[((NeuronNode*)node)->getFunctionType()]->execute(sum);
+		{
+			NeuronNode* neuron = (NeuronNode*)node;
+			sum = functions[neuron->getFunctionType()]->execute(sum + neuron->getBias());
+		}
 		node->setValue(sum);
 	}
 	return !cycle;
@@ -150,6 +153,15 @@ bool Execution::step()
 			return false;
 		weights.push_back(weight);
 	}
+	// o bias é o peso de uma entrada que vale sempre 1
+	std::map<Node*, double> biases;
+	for(auto& item : delta)
+	{
+		double bias = ((NeuronNode*)item.first)->getBias() + LearningRate * item.second;
+		if(!std::isfinite(bias))
+			return false;
+		biases[item.first] = bias;
+	}
 	for(size_t i = 0; i < edges.size(); i++)
 	{
 		if(weights[i] == edges[i]->getWeight())
@@ -157,14 +169,32 @@ bool Execution::step()
 		edges[i]->setWeight(weights[i]);
 		edges[i]->setChanged(true);
 	}
+	for(auto& item : biases)
+	{
+		NeuronNode* neuron = (NeuronNode*)item.first;
+		if(item.second == neuron->getBias())
+			continue;
+		neuron->setBias(item.second);
+		neuron->setBiasChanged(true);
+	}
 	return true;
+}
+
+void Execution::clearChanged()
+{
+	for(Edge* edge : edges)
+		edge->setChanged(false);
+	for(Node* node : nodes)
+	{
+		if(node->is(Node::TypeNeuron))
+			((NeuronNode*)node)->setBiasChanged(false);
+	}
 }
 
 Execution::TrainResult Execution::train()
 {
 	TrainResult result = { Trained, 0, 0, 0 };
-	for(Edge* edge : edges)
-		edge->setChanged(false);
+	clearChanged();
 	if(!execute())
 	{
 		result.status = HasCycle;
