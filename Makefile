@@ -7,6 +7,7 @@
 #   make app       pacote build/NeuralNetwork.app (somente macOS)
 #   make run       executa a GUI
 #   make test      executa o console com testes_treinamento.txt
+#   make check     testes do treino, sem janela; com dados/mnist também o MNIST
 #   make digitos   refaz exemplos/digitos.bin e digitos28.bin e as amostras a
 #                  partir das imagens de exemplos/digitos e digitos28
 #   make clean     remove build/
@@ -83,7 +84,8 @@ RAYLIB_CHECK  := pkg-config --atleast-version=5.5 raylib
 endif
 
 # rede, execução e treino, sem o raylib
-TRAINING_SRCS := training/Network.cpp training/Training.cpp
+TRAINING_SRCS := training/Network.cpp training/Training.cpp training/Model.cpp \
+                 training/Dataset.cpp training/Trainer.cpp
 CLI_SRCS  := $(TRAINING_SRCS) console/main.cpp cli/Console.cpp
 GUI_SRCS  := $(TRAINING_SRCS) gui/main.cpp gui/ClayRaylib.cpp gui/Widgets.cpp gui/Input.cpp \
              gui/Platform.cpp gui/Resources.cpp gui/Node.cpp gui/Edge.cpp gui/Number.cpp \
@@ -93,6 +95,7 @@ GUI_SRCS  := $(TRAINING_SRCS) gui/main.cpp gui/ClayRaylib.cpp gui/Widgets.cpp gu
 RNA_SRCS  := $(TRAINING_SRCS) cli/main.cpp cli/Console.cpp gui/Platform.cpp gui/Number.cpp \
              gui/Pixels.cpp
 DIGITOS_SRCS := $(TRAINING_SRCS) tools/digitos.cpp gui/Platform.cpp gui/Pixels.cpp
+CHECK_SRCS := $(TRAINING_SRCS) test/check.cpp
 
 RES_HDRS  := $(GEN)/Roboto-Regular.ttf.h
 
@@ -100,6 +103,7 @@ CLI_OBJS  := $(CLI_SRCS:%.cpp=$(OBJDIR)/%.o)
 GUI_OBJS  := $(GUI_SRCS:%.cpp=$(OBJDIR)/%.o)
 RNA_OBJS  := $(RNA_SRCS:%.cpp=$(OBJDIR)/%.o)
 DIGITOS_OBJS := $(DIGITOS_SRCS:%.cpp=$(OBJDIR)/%.o)
+CHECK_OBJS := $(CHECK_SRCS:%.cpp=$(OBJDIR)/%.o)
 ifeq ($(TARGET_OS),windows)
 GUI_RES   := $(OBJDIR)/res/windows/app.o
 endif
@@ -109,9 +113,11 @@ GUI_BIN   := $(BUILD)/NeuralNetwork$(EXE)
 CLI_BIN   := $(BUILD)/RedesNeurais$(EXE)
 DIGITOS   := $(BUILD)/digitos$(EXE)
 RNA_BIN   := $(BUILD)/rna$(EXE)
+CHECK_BIN := $(BUILD)/check$(EXE)
+MNIST_DIR := dados/mnist
 APP       := $(BUILD)/NeuralNetwork.app
 
-.PHONY: all gui console rna raylib raylib-check app run test digitos clean distclean
+.PHONY: all gui console rna raylib raylib-check app run test check digitos clean distclean
 
 all: gui console rna
 
@@ -126,6 +132,9 @@ $(GUI_BIN): $(GUI_OBJS) $(GUI_RES)
 
 $(CLI_BIN): $(CLI_OBJS)
 	$(CXX) $(LDFLAGS) $(CLI_LDFLAGS) -o $@ $^ $(CONSOLE_LIBS)
+
+$(CHECK_BIN): $(CHECK_OBJS)
+	$(CXX) $(LDFLAGS) $(CLI_LDFLAGS) -o $@ $^
 
 $(RNA_BIN): $(RNA_OBJS)
 	$(CXX) $(LDFLAGS) $(CLI_LDFLAGS) -o $@ $^ $(RAYLIB_LIBS) $(CONSOLE_LIBS)
@@ -223,10 +232,14 @@ run: $(GUI_BIN)
 test: $(CLI_BIN)
 	./$(CLI_BIN) < testes_treinamento.txt
 
+check: $(CHECK_BIN)
+	./$(CHECK_BIN) $(wildcard $(MNIST_DIR))
+
 clean:
 	rm -rf $(BUILD)
 
 distclean: clean
 	rm -rf $(RAYLIB_DIR)
 
--include $(sort $(CLI_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(RNA_OBJS:.o=.d) $(DIGITOS_OBJS:.o=.d))
+-include $(sort $(CLI_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(RNA_OBJS:.o=.d) $(DIGITOS_OBJS:.o=.d) \
+	$(CHECK_OBJS:.o=.d))
