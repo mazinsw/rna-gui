@@ -41,18 +41,20 @@ public:
 	};
 
 	/**
-	 * Andamento, avisado a cada iteração do Rprop e a cada época do SGD
+	 * Andamento, avisado a cada iteração do Rprop e durante cada época do SGD
 	 */
 	struct Progress
 	{
 		bool epochs;
 		// iteração ou época, de 1 em diante, e o máximo
 		int step, steps;
+		// fração feita da época, 1 no fim dela
+		float done;
 		// Rprop: soma das diferenças entre o alvo e o valor das saídas em
-		// todas as amostras; SGD: média por amostra na época
+		// todas as amostras; SGD: média por amostra na época até ali
 		double error;
 		// fração das amostras com rótulo cuja maior saída é a do rótulo, no
-		// treino e no teste, -1 sem rótulos
+		// treino até ali e no teste da época anterior, -1 sem rótulos
 		double accuracy, testAccuracy;
 	};
 
@@ -72,6 +74,8 @@ public:
 
 	// a partir daí o treino é por épocas
 	static constexpr int MaxFullBatch = 2000;
+	// lotes entre os avisos do andamento dentro da época
+	static constexpr int ProgressBatches = 40;
 	// Rprop: passo inicial e máximo de cada peso e bias, que se adapta a cada
 	// iteração; abaixo do mínimo o passo já não muda a rede e o treino para
 	static constexpr float InitialStep = 0.05f;

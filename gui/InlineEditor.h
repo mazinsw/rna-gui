@@ -1,73 +1,47 @@
 #ifndef _INLINEEDITOR_H_
 #define _INLINEEDITOR_H_
 #include "Widgets.h"
-#include "Edge.h"
 #include "NeuralNetwork.h"
-#include "NeuronNode.h"
+#include "Number.h"
 
 /**
- * Edita no lugar o peso de uma conexão ou o bias de um neurônio: Enter ou
- * clique fora aplica, Esc cancela
+ * Edita no lugar o peso ou o bias selecionado: Enter ou clique fora aplica,
+ * Esc cancela
  */
 class InlineEditor
 {
 private:
-	Edge * edge;
-	NeuronNode * neuron;
+	// rótulo editado, na rede
+	Rectangle label;
 	TextField field;
 	bool visible;
-private:
-	void open(double value)
-	{
-		field.setText(Node::formatNumber(value, 6));
-		field.selectAll();
-		visible = true;
-	}
 public:
 	InlineEditor()
 	{
-		edge = NULL;
-		neuron = NULL;
+		label = Rectangle{ 0, 0, 0, 0 };
 		visible = false;
 	}
-	void show(Edge * edge)
+	void show(Rectangle label, float value)
 	{
-		this->edge = edge;
-		neuron = NULL;
-		open(edge->getWeight());
-	}
-	void show(NeuronNode * neuron)
-	{
-		this->neuron = neuron;
-		edge = NULL;
-		open(neuron->getBias());
+		this->label = label;
+		field.setText(number::format(value, 6));
+		field.selectAll();
+		visible = true;
 	}
 	bool isVisible()
 	{
 		return visible;
 	}
 	/**
-	 * Aplica o valor digitado, retorna true se mudou. Um texto que não é
-	 * número mantém o valor anterior.
+	 * Fecha e lê o valor digitado, retorna false se o texto não é número
 	 */
-	bool commit()
+	bool commit(float& value)
 	{
-		double value;
+		double number;
 		visible = false;
-		if(!Node::parseNumber(field.getText(), value))
+		if(!number::parse(field.getText(), number))
 			return false;
-		if(edge != NULL)
-		{
-			if(value == edge->getWeight())
-				return false;
-			edge->setWeight(value);
-		}
-		else
-		{
-			if(value == neuron->getBias())
-				return false;
-			neuron->setBias(value);
-		}
+		value = (float)number;
 		return true;
 	}
 	void cancel()
@@ -75,9 +49,9 @@ public:
 		visible = false;
 	}
 	/**
-	 * Processa o teclado, retorna true se o valor foi aplicado e mudou
+	 * Processa o teclado, retorna true com o valor quando Enter o aplica
 	 */
-	bool update()
+	bool update(float& value)
 	{
 		if(IsKeyPressed(KEY_ESCAPE))
 		{
@@ -85,7 +59,7 @@ public:
 			return false;
 		}
 		if(field.update())
-			return commit();
+			return commit(value);
 		return false;
 	}
 	/**
@@ -94,12 +68,11 @@ public:
 	 */
 	void layout(Vector2 origin, NeuralNetwork * network)
 	{
-		Rectangle label = network->toScreen(edge != NULL ? edge->getLabelBox() :
-			neuron->getBiasBox());
+		Rectangle box = network->toScreen(label);
 		// o rótulo fica na janela, o campo em unidades da interface
-		Vector2 center = ClayRaylib_ToLayout(Vector2{ origin.x + label.x + label.width / 2,
-			origin.y + label.y + label.height / 2 });
-		float width = ClayRaylib_ToLayout(Vector2{ label.width, 0 }).x + 24;
+		Vector2 center = ClayRaylib_ToLayout(Vector2{ origin.x + box.x + box.width / 2,
+			origin.y + box.y + box.height / 2 });
+		float width = ClayRaylib_ToLayout(Vector2{ box.width, 0 }).x + 24;
 		if(width < 84)
 			width = 84;
 		// centralizado no rótulo, a dica abaixo do campo pode ser mais larga que ele

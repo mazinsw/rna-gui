@@ -1,110 +1,163 @@
 #include "NeuralNetwork.h"
+#include "Draw.h"
+#include "Number.h"
+#include "Pixels.h"
 #include "Platform.h"
 #include "Shapes.h"
 #include "Widgets.h"
-#include <cmath>
 #include <rlgl.h>
 #include <algorithm>
-#include <functional>
-#include <map>
+#include <atomic>
+#include <cmath>
+#include <mutex>
 #include <stdexcept>
-#include <stdio.h>
-// pontos da grade a cada GRID_SIZE pixels, o primeiro em GRID_OFFSET
+#include <thread>
+// pontos da grade de fundo a cada GRID_SIZE pixels, o primeiro em GRID_OFFSET
 #define GRID_SIZE 20
 #define GRID_OFFSET 10
-// distância na tela em que o nó arrastado entra na camada ou na linha de
-// outro nó
-#define SNAP_DISTANCE 8
-// distância entre camadas e entre os nós de uma camada ao reorganizar
-#define ARRANGE_MIN_LAYER_SPACING 140
-#define ARRANGE_MAX_LAYER_SPACING 200
-#define ARRANGE_MIN_NODE_SPACING 120
-#define ARRANGE_MAX_NODE_SPACING 160
-// distância entre as entradas de uma imagem, em quadrado como os pixels
-#define ARRANGE_PIXEL_SPACING 40
-// nós a menos disto no x ficam na mesma camada
-#define LAYER_TOLERANCE 30
 // limites do zoom e passo de cada volta da roda do mouse
-#define MIN_ZOOM 0.25f
+#define MIN_ZOOM 0.1f
 #define MAX_ZOOM 4.0f
 #define ZOOM_STEP 1.1f
 // menor distância na tela entre os pontos da grade
 #define MIN_GRID_SPACING 12
-// com mais conexões que isto os rótulos de peso cobririam a rede, só o da
-// conexão selecionada aparece
-#define MAX_WEIGHT_LABELS 100
+// distância entre os nós de uma coluna, entre os pixels de uma imagem e entre
+// as colunas
+#define NODE_SPACING 120
+#define PIXEL_SPACING 40
+#define COLUMN_GAP 200
+// saídas à direita dos neurônios da última camada
+#define OUTPUT_GAP 140
+#define BLOCK_WIDTH 160
+#define BLOCK_HEIGHT 240
+#define FRAME_SIZE 224
+// acima disto a camada vira bloco e a imagem vira quadro
+#define MAX_NODES 32
+#define MAX_GRID_SIDE 16
+// por camada, ligações desenhadas uma a uma e com o rótulo do peso
+#define MAX_LINES 4000
+#define MAX_WEIGHT_LABELS 50
+// quanto o nome da coluna cresce com o zoom afastado
+#define MAX_CAPTION_SCALE 2.5f
+// rótulo do peso nesta fração do caminho da entrada ao neurônio
+#define LABEL_POSITION 0.4f
 
-NeuralNetwork::NeuralNetwork(): execution(neurons, edges), random(std::random_device()())
+static const char *functionNames[] = { "Linear", "Degrau", "Bipolar", "Logística", "Hiperbólica",
+	"ReLU", "Softmax" };
+
+/**
+ * Treino em andamento numa thread, com uma cópia da rede
+ */
+struct NeuralNetwork::Job
 {
-	bDown = false;
-	bMoving = false;
-	dragging = false;
-	snapX = snapY = SnapNone;
+	Trainer trainer;
+	Network network;
+	// cópia das amostras guardadas; os dados de fora não mudam durante o treino
+	Dataset samples;
+	const Dataset* data;
+	const Dataset* test;
+	Trainer::Result result;
+	std::mutex mutex;
+	Trainer::Progress progress;
+	bool hasProgress;
+	std::atomic<bool> finished;
+	std::thread thread;
+
+	Job(): data(nullptr), test(nullptr), hasProgress(false), finished(false) {}
+};
+
+Vector2 NeuralNetwork::Column::node(int i) const
+{
+	if(kind == Grid)
+	{
+		int side = Network::imageSide(count);
+		return Vector2{ left + PIXEL_SPACING * (i % side), top + PIXEL_SPACING * (i / side) };
+	}
+	return Vector2{ left, top + NODE_SPACING * i };
+}
+
+NeuralNetwork::NeuralNetwork(): random(std::random_device()())
+{
+	selected = Part{ Part::None, 0, 0, 0 };
+	running = false;
+	showingImage = false;
+	modified = false;
 	zoom = 1;
 	pan = Vector2{ 0, 0 };
 	panning = false;
 	panX = panY = 0;
-	x = y = downX = downY = 0;
-	nodeMoving = NULL;
-	nodeSelected = NULL;
-	edgeSelected = NULL;
-	biasSelected = NULL;
-	nodeAdd = newNeuron();
-	edgeAdd = new Edge(NULL, nodeAdd, 0);
-	actionState = ActionNone;
-	modified = false;
-	running = false;
-	nodeToggle = NULL;
-	showingImage = false;
-	pressX = pressY = 0;
-	request = Request{ Request::None, NULL, NULL };
-	layerType = Node::TypeNeuron;
+	request = Request{ Request::None, 0, Rectangle{ 0, 0, 0, 0 } };
+	image = Texture2D{ 0, 0, 0, 0, 0 };
+	imageDirty = true;
+	heatmapsDirty = true;
 }
 
 NeuralNetwork::~NeuralNetwork()
 {
-	clear();
-	delete edgeAdd;
-	delete nodeAdd;
+	cancelTraining();
+	unloadTextures();
 }
 
-NeuronNode *NeuralNetwork::newNeuron()
+void NeuralNetwork::arrange()
 {
-	NeuronNode *neuron = new NeuronNode();
-	neuron->setBias(randomWeight());
-	return neuron;
-}
-
-Node *NeuralNetwork::newNode(Node::Type type)
-{
-	if(type == Node::TypeInput)
-		return new InputNode();
-	if(type == Node::TypeOutput)
-		return new OutputNode();
-	return newNeuron();
-}
-
-void NeuralNetwork::addNeuron(Rectangle area)
-{
-	addToColumn(Node::TypeNeuron, area);
-}
-
-void NeuralNetwork::addInput(Rectangle area)
-{
-	addToColumn(Node::TypeInput, area);
-}
-
-void NeuralNetwork::addOutput(Rectangle area)
-{
-	addToColumn(Node::TypeOutput, area);
+	columns.clear();
+	// os blocos e o quadro crescem com a coluna de nós mais alta, para não
+	// sumirem ao lado dela
+	int tallest = 0;
+	for(const Network::Layer& layer : network.layers)
+		tallest = layer.size <= MAX_NODES ? std::max(tallest, layer.size) : tallest;
+	float scale = std::max(1.0f, NODE_SPACING * (tallest - 1) * 0.6f / BLOCK_HEIGHT);
+	float x = 0;
+	for(int c = 0; c <= (int)network.layers.size(); c++)
+	{
+		Column column;
+		column.count = c == 0 ? network.inputs : network.layers[c - 1].size;
+		int side = c == 0 ? network.side : 0;
+		float width = 0, height = 0;
+		if(side > MAX_GRID_SIDE)
+		{
+			column.kind = Column::Frame;
+			width = height = FRAME_SIZE * scale;
+		}
+		else if(side > 0)
+		{
+			column.kind = Column::Grid;
+			width = height = PIXEL_SPACING * (side - 1);
+		}
+		else if(column.count > MAX_NODES)
+		{
+			// o mosaico dos pesos de uma imagem é quadrado
+			column.kind = Column::Block;
+			height = BLOCK_HEIGHT * scale;
+			width = isMosaic(c - 1) ? height : BLOCK_WIDTH * scale;
+		}
+		else
+		{
+			column.kind = Column::Nodes;
+			height = NODE_SPACING * std::max(0, column.count - 1);
+		}
+		column.left = x;
+		column.right = x + width;
+		column.top = -height / 2;
+		column.bottom = height / 2;
+		column.lines = false;
+		if(c > 0)
+		{
+			const Column& previous = columns.back();
+			column.lines = (previous.kind == Column::Nodes || previous.kind == Column::Grid) &&
+				column.kind == Column::Nodes && previous.count * column.count <= MAX_LINES;
+		}
+		columns.push_back(column);
+		x = column.right + COLUMN_GAP;
+	}
 }
 
 void NeuralNetwork::paint(Rectangle bounds)
 {
 	DrawRectangleRec(bounds, ui::toColor(ui::CanvasColor));
 	BeginScissorMode((int)bounds.x, (int)bounds.y, (int)bounds.width, (int)bounds.height);
-	// grade de pontos, onde os nós se alinham. Com o zoom afastado fica um a
-	// cada 2, 4..., para os pontos não se juntarem
+	// grade de pontos. Com o zoom afastado fica um a cada 2, 4..., para os
+	// pontos não se juntarem
 	Color grid = ui::toColor(ui::GridColor);
 	float spacing = GRID_SIZE * zoom;
 	while(spacing < MIN_GRID_SPACING)
@@ -117,108 +170,433 @@ void NeuralNetwork::paint(Rectangle bounds)
 		for(float gx = left; gx < bounds.x + bounds.width; gx += spacing)
 			DrawRectangleRec(Rectangle{ gx - 0.75f, gy - 0.75f, 1.5f, 1.5f }, grid);
 	}
-	drawGuides(bounds);
 	// desenha a rede com o zoom e o deslocamento da vista. Sem BeginMode2D: no
 	// raylib 6 ele descarta a escala da tela Retina e a rede sairia com metade
 	// do tamanho, longe de onde o mouse a encontra
 	Vector2 offset = { bounds.x + pan.x, bounds.y + pan.y };
 	shapes::setZoom(zoom);
-	Node::setView(zoom, offset);
+	draw::setView(zoom, offset);
 	rlPushMatrix();
 	rlTranslatef(offset.x, offset.y, 0);
 	rlScalef(zoom, zoom, 1);
 	draw();
 	rlPopMatrix();
-	Node::setView(1, Vector2{ 0, 0 });
+	draw::setView(1, Vector2{ 0, 0 });
 	shapes::setZoom(1);
 	EndScissorMode();
 }
 
+void NeuralNetwork::draw()
+{
+	arrange();
+	updateTextures();
+	boxes.clear();
+	for(size_t l = 0; l < network.layers.size(); l++)
+		drawLayerLines((int)l);
+	for(size_t c = 0; c < columns.size(); c++)
+		drawColumn((int)c);
+	for(size_t c = 0; c < columns.size(); c++)
+		drawCaption((int)c);
+}
+
+void NeuralNetwork::drawLayerLines(int index)
+{
+	const Column& from = columns[index];
+	const Column& to = columns[index + 1];
+	const Network::Layer& layer = network.layers[index];
+	if(from.count == 0)
+		return;
+	if(!to.lines)
+	{
+		// faixa entre as colunas, as ligações são muitas para desenhar
+		float pad = from.kind == Column::Nodes ? draw::NeuronRadius : 0;
+		float toPad = to.kind == Column::Nodes ? draw::NeuronRadius : 0;
+		Color color = ui::toColor(ui::PillBorderColor);
+		color.a = 110;
+		Vector2 band[] = { { from.right + pad, from.top - pad }, { to.left - toPad, to.top - toPad },
+			{ to.left - toPad, to.bottom + toPad }, { from.right + pad, from.bottom + pad } };
+		shapes::fillPolygon(band, 4, color);
+		return;
+	}
+	// influência na saída: na edição pelo peso, na execução pelo sinal que
+	// passa na ligação
+	int k = from.count, size = to.count;
+	std::vector<float> influence(layer.weights.size());
+	float highest = 0;
+	for(int i = 0; i < k; i++)
+	{
+		float source = !running ? 1 : index == 0 ? inputs[i] : values[index - 1][i];
+		for(int j = 0; j < size; j++)
+		{
+			float value = fabsf(layer.weights[(size_t)i * size + j] * source);
+			value = std::isfinite(value) ? value : 0;
+			influence[(size_t)i * size + j] = value;
+			highest = std::max(highest, value);
+		}
+	}
+	bool grid = from.kind == Column::Grid;
+	for(int i = 0; i < k; i++)
+	{
+		for(int j = 0; j < size; j++)
+		{
+			float value = highest > 0 ? influence[(size_t)i * size + j] / highest : 0;
+			float thickness = (grid ? 1 : 1.5f) + 3 * value;
+			Color color = draw::influenceColor(value);
+			if(isSelected(Part::Weight, index, i, j))
+			{
+				color = ui::toColor(ui::AccentColor);
+				thickness = std::max(thickness, 2.5f);
+			}
+			shapes::line(from.node(i), to.node(j), thickness, color);
+		}
+	}
+	// rótulos dos pesos por cima das linhas, o selecionado sempre
+	bool labels = !grid && k * size <= MAX_WEIGHT_LABELS;
+	for(int i = 0; i < k; i++)
+	{
+		for(int j = 0; j < size; j++)
+		{
+			bool selectedWeight = isSelected(Part::Weight, index, i, j);
+			if(!labels && !selectedWeight)
+				continue;
+			// antes do meio, onde as ligações que se cruzam se encontram
+			Vector2 a = from.node(i), b = to.node(j);
+			bool changed = index < (int)changedWeights.size() &&
+				changedWeights[index][(size_t)i * size + j];
+			Rectangle box = draw::label(Vector2{ a.x + (b.x - a.x) * LABEL_POSITION,
+				a.y + (b.y - a.y) * LABEL_POSITION }, "",
+				layer.weights[(size_t)i * size + j], changed, selectedWeight);
+			boxes.push_back(Box{ box, Part{ Part::Weight, index, i, j } });
+		}
+	}
+}
+
+void NeuralNetwork::drawColumn(int c)
+{
+	const Column& column = columns[c];
+	int layer = c - 1;
+	bool columnSelected = isSelected(Part::Layer, layer, 0);
+	Rectangle bounds = { column.left, column.top, column.right - column.left,
+		column.bottom - column.top };
+	Color ring = ui::toColor(ui::SelectionRingColor);
+	if(column.kind == Column::Block || column.kind == Column::Frame)
+	{
+		// caixa com o mapa dos pesos, as entradas grandes ou a imagem
+		if(columnSelected)
+			shapes::strokeRoundedRect(Rectangle{ bounds.x - 5, bounds.y - 5, bounds.width + 10,
+				bounds.height + 10 }, 16, 4, ring);
+		shapes::fillRoundedRect(bounds, 12, WHITE);
+		shapes::strokeRoundedRect(bounds, 12, 2, ui::toColor(ui::NodeColor));
+		Rectangle inner = { bounds.x + 10, bounds.y + 10, bounds.width - 20, bounds.height - 20 };
+		Texture2D texture = c == 0 ? image : layer < (int)heatmaps.size() ? heatmaps[layer] :
+			Texture2D{ 0, 0, 0, 0, 0 };
+		if(texture.id != 0)
+			DrawTexturePro(texture, Rectangle{ 0, 0, (float)texture.width, (float)texture.height },
+				inner, Vector2{ 0, 0 }, 0, WHITE);
+		else
+			draw::textCentered(std::to_string(column.count) + " entradas", Vector2{
+				bounds.x + bounds.width / 2, bounds.y + bounds.height / 2 }, ui::LabelFontSize,
+				ui::toColor(ui::MutedColor));
+		boxes.push_back(Box{ bounds, Part{ Part::Layer, layer, 0, 0 } });
+		return;
+	}
+	if(c == 0)
+	{
+		for(int i = 0; i < column.count; i++)
+		{
+			Vector2 center = column.node(i);
+			draw::input(center, inputs[i], running, columnSelected ||
+				isSelected(Part::Input, -1, i));
+			boxes.push_back(Box{ Rectangle{ center.x - draw::InputHalf, center.y - draw::InputHalf,
+				draw::InputHalf * 2, draw::InputHalf * 2 }, Part{ Part::Input, -1, i, i } });
+		}
+		return;
+	}
+	const Network::Layer& weights = network.layers[layer];
+	bool last = layer + 1 == (int)network.layers.size();
+	int recognized = running && showingImage ? getRecognized() : -1;
+	for(int j = 0; j < column.count; j++)
+	{
+		Vector2 center = column.node(j);
+		float r = draw::NeuronRadius;
+		if(last)
+		{
+			// a saída repassa o valor do neurônio
+			Vector2 output = { center.x + OUTPUT_GAP, center.y };
+			shapes::line(center, output, 2, ui::toColor(ui::PillBorderColor));
+			Rectangle target = draw::output(output, values.back()[j], targets[j], running,
+				isSelected(Part::Neuron, layer, j));
+			if(target.width > 0)
+				boxes.push_back(Box{ target, Part{ Part::Target, layer, j, j } });
+			if(running && showingImage)
+			{
+				// número da classe, a reconhecida em destaque
+				std::string text = std::to_string(j);
+				float width = draw::measureText(text, ui::LabelFontSize).x + 16;
+				Vector2 middle = { output.x + 26 + width / 2, output.y };
+				Color color = ui::toColor(ui::MutedColor);
+				if(j == recognized)
+				{
+					draw::pill(Rectangle{ middle.x - width / 2, middle.y - 12, width, 24 },
+						ui::toColor(ui::AccentColor), ui::toColor(ui::AccentColor));
+					color = WHITE;
+				}
+				draw::textCentered(text, middle, ui::LabelFontSize, color);
+			}
+		}
+		draw::neuron(center, weights.function, columnSelected || isSelected(Part::Neuron, layer, j));
+		boxes.push_back(Box{ Rectangle{ center.x - r, center.y - r, 2 * r, 2 * r },
+			Part{ Part::Neuron, layer, j, j } });
+		bool changed = layer < (int)changedBias.size() && changedBias[layer][j];
+		Rectangle bias = draw::label(Vector2{ center.x, center.y - 45 }, "b ", weights.bias[j],
+			changed, isSelected(Part::Bias, layer, j));
+		boxes.push_back(Box{ bias, Part{ Part::Bias, layer, j, j } });
+		if(running)
+			draw::neuronValue(center, values[layer][j]);
+	}
+}
+
+void NeuralNetwork::drawCaption(int c)
+{
+	const Column& column = columns[c];
+	int layer = c - 1;
+	std::string text;
+	if(c == 0)
+	{
+		if(network.inputs == 0)
+			return;
+		text = network.side > 0 ? "Imagem " + std::to_string(network.side) + " × " +
+			std::to_string(network.side) : "Entradas · " + std::to_string(network.inputs);
+	}
+	else
+	{
+		const Network::Layer& weights = network.layers[layer];
+		bool last = layer + 1 == (int)network.layers.size();
+		text = (last ? std::string("Saída") : "Oculta " + std::to_string(c)) + " · " +
+			functionNames[weights.function] + " · " + std::to_string(weights.size);
+	}
+	// acima do bias dos neurônios e da seleção dos blocos; com o zoom afastado
+	// o texto cresce, para continuar legível
+	float size = ui::CaptionFontSize * std::min(MAX_CAPTION_SCALE, 1 / zoom);
+	float height = size + 10;
+	float above = (column.kind == Column::Nodes || column.kind == Column::Grid ?
+		(c > 0 ? 71 : 35) : 15) + height / 2;
+	Vector2 center = { (column.left + column.right) / 2, column.top - above };
+	Rectangle box = draw::pillBox(center, text, size, height);
+	bool columnSelected = isSelected(Part::Layer, layer, 0);
+	if(columnSelected)
+		draw::pill(box, ui::toColor(ui::AccentColor), ui::toColor(ui::AccentColor));
+	else
+		draw::pill(box, ui::toColor(ui::HoverColor), ui::toColor(ui::PanelBorderColor));
+	draw::textCentered(text, center, size, columnSelected ? WHITE :
+		ui::toColor(ui::StatusTextColor));
+	boxes.push_back(Box{ box, Part{ Part::Layer, layer, 0, 0 } });
+}
+
 /**
- * Linha tracejada de 1 pixel
+ * Cor do peso no mapa: azul negativo, vermelho positivo, mais forte quanto
+ * maior, cheia a partir de full
  */
-static void dashedLine(Vector2 a, Vector2 b, Color color)
+static Color weightColor(float weight, float full)
 {
-	const float dash = 4, gap = 4;
-	float length = hypotf(b.x - a.x, b.y - a.y);
-	if(length <= 0)
-		return;
-	Vector2 direction = { (b.x - a.x) / length, (b.y - a.y) / length };
-	for(float d = 0; d < length; d += dash + gap)
+	float t = full > 0 && std::isfinite(weight) ? fminf(fabsf(weight) / full, 1) : 0;
+	return ColorLerp(WHITE, weight < 0 ? ui::toColor(ui::AccentColor) : Color{ 220, 38, 38, 255 },
+		t);
+}
+
+/**
+ * Peso que fica com a cor cheia: o dobro da raiz da média dos quadrados, para
+ * uns poucos pesos grandes não apagarem os demais
+ */
+static float fullWeight(const float* weights, size_t count, size_t stride)
+{
+	double sum = 0;
+	for(size_t i = 0; i < count; i++)
+		sum += std::isfinite(weights[i * stride]) ? weights[i * stride] * weights[i * stride] : 0;
+	return count > 0 ? (float)(2 * sqrt(sum / count)) : 0;
+}
+
+bool NeuralNetwork::isMosaic(int layer)
+{
+	return layer == 0 && network.side > 0;
+}
+
+void NeuralNetwork::updateTextures()
+{
+	if(heatmapsDirty)
 	{
-		float end = fminf(d + dash, length);
-		shapes::line(Vector2{ a.x + direction.x * d, a.y + direction.y * d },
-			Vector2{ a.x + direction.x * end, a.y + direction.y * end }, 1, color);
+		for(Texture2D& texture : heatmaps)
+		{
+			if(texture.id != 0)
+				UnloadTexture(texture);
+		}
+		heatmaps.assign(network.layers.size(), Texture2D{ 0, 0, 0, 0, 0 });
+		for(size_t l = 0; l < network.layers.size(); l++)
+		{
+			if(columns[l + 1].kind != Column::Block)
+				continue;
+			const Network::Layer& layer = network.layers[l];
+			int k = network.inputCount((int)l);
+			Image map;
+			if(isMosaic((int)l))
+			{
+				// os pesos de cada neurônio na forma da imagem, lado a lado
+				int side = network.side;
+				int across = (int)ceil(sqrt(layer.size));
+				int down = (layer.size + across - 1) / across;
+				map = GenImageColor(across * side, down * side, WHITE);
+				Color* pixels = (Color*)map.data;
+				for(int j = 0; j < layer.size; j++)
+				{
+					float full = fullWeight(&layer.weights[j], k, layer.size);
+					int left = j % across * side, top = j / across * side;
+					for(int i = 0; i < k; i++)
+						pixels[(size_t)(top + i / side) * map.width + left + i % side] =
+							weightColor(layer.weights[(size_t)i * layer.size + j], full);
+				}
+			}
+			else
+			{
+				// uma linha por neurônio e uma coluna por entrada
+				float full = fullWeight(layer.weights.data(), layer.weights.size(), 1);
+				map = GenImageColor(k, layer.size, WHITE);
+				Color* pixels = (Color*)map.data;
+				for(int i = 0; i < k; i++)
+				{
+					for(int j = 0; j < layer.size; j++)
+						pixels[(size_t)j * k + i] = weightColor(layer.weights[(size_t)i * layer.size + j],
+							full);
+				}
+			}
+			heatmaps[l] = LoadTextureFromImage(map);
+			UnloadImage(map);
+			// reduzido pela média dos pixels, sem serrilhar
+			GenTextureMipmaps(&heatmaps[l]);
+			SetTextureFilter(heatmaps[l], TEXTURE_FILTER_TRILINEAR);
+		}
+		heatmapsDirty = false;
 	}
-}
-
-void NeuralNetwork::drawGuides(Rectangle bounds)
-{
-	Node *node = NULL;
-	if(dragging)
-		node = nodeMoving;
-	else if(actionState == ActionLayer && !layerNodes.empty())
-		node = layerNodes[0];
-	if(node == NULL)
-		return;
-	// por baixo das conexões e dos nós: azul na camada ou na linha de outro
-	// nó, tracejada no ponto da grade
-	Vector2 center = toScreen(node->getCenter());
-	center = Vector2{ bounds.x + center.x, bounds.y + center.y };
-	Color layer = ui::toColor(ui::AccentColor);
-	Color grid = ui::toColor(ui::FaintColor);
-	Vector2 top = { center.x, bounds.y }, bottom = { center.x, bounds.y + bounds.height };
-	Vector2 left = { bounds.x, center.y }, right = { bounds.x + bounds.width, center.y };
-	if(snapX == SnapLayer)
-		shapes::line(top, bottom, 1, layer);
-	else if(snapX == SnapGrid)
-		dashedLine(top, bottom, grid);
-	if(snapY == SnapLayer)
-		shapes::line(left, right, 1, layer);
-	else if(snapY == SnapGrid)
-		dashedLine(left, right, grid);
-}
-
-static int snapToGrid(int value)
-{
-	return (int)floorf((value - GRID_OFFSET) / (float)GRID_SIZE + 0.5f) * GRID_SIZE + GRID_OFFSET;
-}
-
-Point NeuralNetwork::snapPosition(Node *node, int x, int y)
-{
-	snapX = snapY = SnapNone;
-	if(IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT))
-		return Point(x, y);
-	Point p(snapToGrid(x), snapToGrid(y));
-	snapX = snapY = SnapGrid;
-	// a camada mais próxima tem prioridade sobre a grade, para alinhar com nós
-	// que estão fora dela
-	float distanceX = SNAP_DISTANCE / zoom + 1, distanceY = distanceX;
-	std::vector<Node *>::iterator it;
-	for(it = neurons.begin(); it != neurons.end(); it++)
+	bool frame = columns[0].kind == Column::Frame;
+	if(image.id != 0 && (!frame || image.width != network.side))
 	{
-		if(*it == node)
+		UnloadTexture(image);
+		image = Texture2D{ 0, 0, 0, 0, 0 };
+	}
+	if(!frame || (!imageDirty && image.id != 0))
+		return;
+	// pixels da imagem como as entradas: a cor acompanha a intensidade
+	Image pixels = GenImageColor(network.side, network.side, WHITE);
+	Color* colors = (Color*)pixels.data;
+	for(int i = 0; i < network.inputs; i++)
+		colors[i] = ColorLerp(WHITE, ui::toColor(ui::AccentDarkColor),
+			fminf(fmaxf(inputs[i], 0), 1));
+	if(image.id == 0)
+	{
+		image = LoadTextureFromImage(pixels);
+		SetTextureFilter(image, TEXTURE_FILTER_POINT);
+	}
+	else
+		UpdateTexture(image, pixels.data);
+	UnloadImage(pixels);
+	imageDirty = false;
+}
+
+void NeuralNetwork::unloadTextures()
+{
+	for(Texture2D& texture : heatmaps)
+	{
+		if(texture.id != 0)
+			UnloadTexture(texture);
+	}
+	heatmaps.clear();
+	if(image.id != 0)
+		UnloadTexture(image);
+	image = Texture2D{ 0, 0, 0, 0, 0 };
+}
+
+NeuralNetwork::Part NeuralNetwork::partAt(Vector2 point)
+{
+	// os desenhados por último ficam por cima
+	for(auto it = boxes.rbegin(); it != boxes.rend(); it++)
+	{
+		if(CheckCollisionPointRec(point, it->box))
+			return it->part;
+	}
+	for(size_t l = 0; l < network.layers.size() && l + 1 < columns.size(); l++)
+	{
+		const Column& from = columns[l];
+		const Column& to = columns[l + 1];
+		if(!to.lines)
 			continue;
-		const Point& other = (*it)->getPosition();
-		if(abs(other.x - x) < distanceX)
+		for(int i = 0; i < from.count; i++)
 		{
-			distanceX = abs(other.x - x);
-			p.x = other.x;
-			snapX = SnapLayer;
-		}
-		if(abs(other.y - y) < distanceY)
-		{
-			distanceY = abs(other.y - y);
-			p.y = other.y;
-			snapY = SnapLayer;
+			for(int j = 0; j < to.count; j++)
+			{
+				// distância do ponto ao segmento
+				Vector2 a = from.node(i), b = to.node(j);
+				float dx = b.x - a.x, dy = b.y - a.y;
+				float length = dx * dx + dy * dy;
+				float t = length > 0 ? ((point.x - a.x) * dx + (point.y - a.y) * dy) / length : 0;
+				t = t < 0 ? 0 : t > 1 ? 1 : t;
+				if(hypotf(a.x + t * dx - point.x, a.y + t * dy - point.y) <= 4)
+					return Part{ Part::Weight, (int)l, i, j };
+			}
 		}
 	}
-	return p;
+	return Part{ Part::None, 0, 0, 0 };
 }
 
-Point NeuralNetwork::toWorld(int x, int y)
+bool NeuralNetwork::isSelected(Part::Kind kind, int layer, int from, int to)
 {
-	return Point((int)floorf((x - pan.x) / zoom + 0.5f), (int)floorf((y - pan.y) / zoom + 0.5f));
+	if(selected.kind != kind || selected.layer != layer)
+		return false;
+	if(kind == Part::Layer)
+		return true;
+	if(kind == Part::Weight)
+		return selected.from == from && selected.to == to;
+	return selected.to == from;
+}
+
+void NeuralNetwork::select(Part part)
+{
+	selected = part;
+}
+
+void NeuralNetwork::execute()
+{
+	if(network.layers.empty())
+		values.clear();
+	else
+		network.forward(inputs.data(), 1, values);
+	imageDirty = true;
+}
+
+void NeuralNetwork::clearChanged()
+{
+	changedWeights.clear();
+	changedBias.clear();
+}
+
+void NeuralNetwork::structureChanged(int oldInputs, int oldOutputs)
+{
+	inputs.resize(network.inputs, 0);
+	targets.resize(network.outputs(), 0);
+	// as amostras têm um valor por entrada e um alvo por saída
+	if(network.inputs != oldInputs || network.outputs() != oldOutputs)
+	{
+		samples = Dataset(network.inputs, network.outputs());
+		showingImage = false;
+	}
+	clearChanged();
+	heatmapsDirty = true;
+	imageDirty = true;
+	modified = true;
+	execute();
+}
+
+Vector2 NeuralNetwork::toWorld(int x, int y)
+{
+	return Vector2{ (x - pan.x) / zoom, (y - pan.y) / zoom };
 }
 
 Vector2 NeuralNetwork::toScreen(Vector2 point)
@@ -250,9 +628,7 @@ void NeuralNetwork::startPanning(int x, int y)
 
 void NeuralNetwork::startPan(int x, int y)
 {
-	// não interrompe o arraste de um nó
-	if(!bDown)
-		startPanning(x, y);
+	startPanning(x, y);
 }
 
 void NeuralNetwork::endPan()
@@ -260,42 +636,46 @@ void NeuralNetwork::endPan()
 	panning = false;
 }
 
-void NeuralNetwork::fitView(Rectangle area)
+bool NeuralNetwork::isMouseDown()
 {
-	zoom = 1;
-	pan = Vector2{ 0, 0 };
-	if(neurons.empty())
-		return;
-	Point low = neurons[0]->getPosition(), high = low;
-	std::vector<Node *>::iterator it;
-	for(it = neurons.begin(); it != neurons.end(); it++)
-	{
-		const Point& p = (*it)->getPosition();
-		low = Point(std::min(low.x, p.x), std::min(low.y, p.y));
-		high = Point(std::max(high.x, p.x), std::max(high.y, p.y));
-	}
-	if(high.x - low.x > area.width)
-		zoom = area.width / (high.x - low.x);
-	if((high.y - low.y) * zoom > area.height)
-		zoom = area.height / (high.y - low.y);
-	if(zoom < MIN_ZOOM)
-		zoom = MIN_ZOOM;
-	// no pixel inteiro, para as linhas finas não borrarem
-	pan.x = roundf(area.x + area.width / 2 - (low.x + high.x) / 2.0f * zoom);
-	pan.y = roundf(area.y + area.height / 2 - (low.y + high.y) / 2.0f * zoom);
+	return panning;
 }
 
-bool NeuralNetwork::fitsIn(Rectangle area)
+Rectangle NeuralNetwork::bounds()
 {
-	std::vector<Node *>::iterator it;
-	for(it = neurons.begin(); it != neurons.end(); it++)
+	arrange();
+	float left = columns.front().left, right = columns.back().right;
+	float top = 0, bottom = 0;
+	for(const Column& column : columns)
 	{
-		Vector2 p = toScreen((*it)->getCenter());
-		if(p.x < area.x || p.y < area.y || p.x > area.x + area.width ||
-			p.y > area.y + area.height)
-			return false;
+		top = std::min(top, column.top);
+		bottom = std::max(bottom, column.bottom);
 	}
-	return true;
+	if(columns.back().kind == Column::Nodes && !network.layers.empty())
+		right += OUTPUT_GAP;
+	return Rectangle{ left, top, right - left, bottom - top };
+}
+
+void NeuralNetwork::fitView(Rectangle area)
+{
+	Rectangle box = bounds();
+	zoom = 1;
+	if(box.width > area.width)
+		zoom = area.width / box.width;
+	if(box.height * zoom > area.height)
+		zoom = area.height / box.height;
+	zoom = std::max(zoom, MIN_ZOOM);
+	// no pixel inteiro, para as linhas finas não borrarem
+	pan.x = roundf(area.x + area.width / 2 - (box.x + box.width / 2) * zoom);
+	pan.y = roundf(area.y + area.height / 2 - (box.y + box.height / 2) * zoom);
+}
+
+bool NeuralNetwork::isVisible(Rectangle area)
+{
+	Rectangle box = toScreen(bounds());
+	// a rede de um nó só tem tamanho 0
+	box = Rectangle{ box.x - 1, box.y - 1, box.width + 2, box.height + 2 };
+	return CheckCollisionRecs(box, area);
 }
 
 float NeuralNetwork::getZoom()
@@ -314,893 +694,12 @@ void NeuralNetwork::setView(float zoom, Vector2 pan)
 	this->pan = pan;
 }
 
-void NeuralNetwork::updateInfluence()
-{
-	// na edição pelo peso, na execução pelo sinal que passa na conexão
-	std::vector<double> influences;
-	double highest = 0;
-	std::vector<Edge *>::iterator ite;
-	for(ite = edges.begin(); ite != edges.end(); ite++)
-	{
-		Edge *edge = *ite;
-		double influence = fabs(edge->getWeight());
-		if(running)
-			influence *= fabs(edge->getFirst()->getValue());
-		if(!std::isfinite(influence))
-			influence = 0;
-		influences.push_back(influence);
-		if(influence > highest)
-			highest = influence;
-	}
-	for(size_t i = 0; i < edges.size(); i++)
-		edges[i]->setInfluence(highest > 0 ? (float)(influences[i] / highest) : 0);
-}
-
-void NeuralNetwork::draw()
-{
-	updateInfluence();
-	bool drawingLayer = actionState == ActionLayer && !layerNodes.empty();
-	Layer layer;
-	if(drawingLayer)
-		layer = layerAt(layerStart.x);
-	// a camada nova arrastada entre duas esconde as conexões diretas que vai
-	// remover
-	std::vector<Edge *> visible;
-	std::vector<Edge *>::iterator ite;
-	for(ite = edges.begin(); ite != edges.end(); ite++)
-	{
-		if(drawingLayer && layer.nodes.empty() &&
-			std::find(layer.prev.begin(), layer.prev.end(), (*ite)->getFirst()) != layer.prev.end() &&
-			std::find(layer.next.begin(), layer.next.end(), (*ite)->getSecond()) != layer.next.end())
-			continue;
-		visible.push_back(*ite);
-	}
-	for(ite = visible.begin(); ite != visible.end(); ite++)
-		(*ite)->drawLine();
-	if(!bMoving && actionState == ActionConnect)
-		shapes::line(edgeAdd->getFirst()->getCenter(), nodeAdd->getCenter(), 2,
-			ui::toColor(ui::FaintColor));
-	std::vector<Node *>::iterator it;
-	if(drawingLayer)
-	{
-		// conexões que a camada arrastada vai ganhar
-		Color faint = ui::toColor(ui::FaintColor);
-		for(it = layerNodes.begin(); it != layerNodes.end(); it++)
-		{
-			std::vector<Node *>::iterator itl;
-			for(itl = layer.prev.begin(); itl != layer.prev.end(); itl++)
-			{
-				if(canLink(*itl, *it))
-					shapes::line((*itl)->getCenter(), (*it)->getCenter(), 1.5f, faint);
-			}
-			for(itl = layer.next.begin(); itl != layer.next.end(); itl++)
-			{
-				if(canLink(*it, *itl))
-					shapes::line((*it)->getCenter(), (*itl)->getCenter(), 1.5f, faint);
-			}
-		}
-	}
-	bool labels = edges.size() <= MAX_WEIGHT_LABELS;
-	for(ite = edges.begin(); ite != edges.end(); ite++)
-		(*ite)->hideLabel();
-	for(ite = visible.begin(); ite != visible.end(); ite++)
-	{
-		if(labels || (*ite)->isSelected())
-			(*ite)->drawLabel();
-	}
-	for(it = neurons.begin(); it != neurons.end(); it++)
-		(*it)->draw(running);
-	for(it = layerNodes.begin(); it != layerNodes.end(); it++)
-		(*it)->draw(false);
-	if(running && showingImage)
-		drawClasses();
-}
-
-void NeuralNetwork::drawClasses()
-{
-	std::vector<Node *> outputs = readingOrder(Node::TypeOutput);
-	int recognized = getRecognized();
-	float size = ui::LabelFontSize;
-	for(size_t i = 0; i < outputs.size(); i++)
-	{
-		Vector2 center = outputs[i]->getCenter();
-		std::string text = std::to_string(i);
-		float width = Node::measureText(text, size).x + 16;
-		Vector2 middle = { center.x + 26 + width / 2, center.y };
-		Color color = ui::toColor(ui::MutedColor);
-		if((int)i == recognized)
-		{
-			Rectangle box = { middle.x - width / 2, middle.y - 12, width, 24 };
-			Node::drawPill(box, ui::toColor(ui::AccentColor), ui::toColor(ui::AccentColor));
-			color = WHITE;
-		}
-		Node::drawTextCentered(text, middle, size, color);
-	}
-}
-
-std::vector<Node *> NeuralNetwork::readingOrder(Node::Type type)
-{
-	std::vector<Node *> found;
-	std::vector<std::pair<int, int> > positions;
-	for(Node *node : neurons)
-	{
-		if(!node->is(type) || (type == Node::TypeInput && ((InputNode*)node)->isBias()))
-			continue;
-		found.push_back(node);
-		positions.push_back(std::make_pair(node->getPosition().x, node->getPosition().y));
-	}
-	std::vector<Node *> result;
-	for(int i : Graph::readingOrder(positions))
-		result.push_back(found[i]);
-	return result;
-}
-
-Node *NeuralNetwork::neuronAt(int x, int y)
-{
-	std::vector<Node *>::iterator it;
-	Point p(x, y);
-	for(it = neurons.begin(); it != neurons.end(); it++)
-	{
-		Node *node = *it;
-		if(node->IsIn(p))
-			return node;
-	}
-	return NULL;
-}
-
-Node *NeuralNetwork::valueAt(int x, int y)
-{
-	std::vector<Node *>::iterator it;
-	Point p(x, y);
-	for(it = neurons.begin(); it != neurons.end(); it++)
-	{
-		Node *node = *it;
-		if(node->IsInValue(p))
-			return node;
-	}
-	return NULL;
-}
-
-NeuronNode *NeuralNetwork::biasAt(int x, int y)
-{
-	std::vector<Node *>::iterator it;
-	Point p(x, y);
-	for(it = neurons.begin(); it != neurons.end(); it++)
-	{
-		Node *node = *it;
-		if(node->is(Node::TypeNeuron) && ((NeuronNode*)node)->IsInBias(p))
-			return (NeuronNode*)node;
-	}
-	return NULL;
-}
-
-void NeuralNetwork::updateAddEdge(int x, int y)
-{
-	nodeAdd->setPosition(x, y);
-}
-
-Edge *NeuralNetwork::findEdge(Node *first, Node *second)
-{
-	std::vector<Edge *>::iterator ite;
-	for(ite = edges.begin(); ite != edges.end(); ite++)
-	{
-		Edge *edge = *ite;
-		if(edge->getFirst() == first && edge->getSecond() == second)
-			return edge;
-	}
-	return NULL;
-}
-
-Edge *NeuralNetwork::edgeAt(int x, int y)
-{
-	std::vector<Edge *>::iterator ite;
-	Point p(x, y);
-	// os rótulos ficam por cima das linhas
-	for(ite = edges.begin(); ite != edges.end(); ite++)
-	{
-		if((*ite)->IsInLabel(p))
-			return *ite;
-	}
-	for(ite = edges.begin(); ite != edges.end(); ite++)
-	{
-		if((*ite)->IsIn(p))
-			return *ite;
-	}
-	return NULL;
-}
-
-bool NeuralNetwork::canConnect(Node *first, Node *second)
-{
-	// o segundo clique de um clique duplo não liga o nó a ele mesmo
-	if(first == second)
-		return false;
-	if(findEdge(first, second) != NULL)
-		return false;
-	return Graph::canConnect(first->getType(), second->getType());
-}
-
-bool NeuralNetwork::canLink(Node *first, Node *second)
-{
-	return !first->is(Node::TypeOutput) && !second->is(Node::TypeInput) &&
-		canConnect(first, second);
-}
-
-void NeuralNetwork::connect(Node *first, Node *second)
-{
-	if(!canConnect(first, second))
-		return;
-	// a conexão com a saída repassa o valor do neurônio, as demais começam
-	// com peso aleatório
-	double weight = second->is(Node::TypeOutput) ? 1 : randomWeight();
-	edges.push_back(new Edge(first, second, weight));
-	modified = true;
-}
-
-void NeuralNetwork::addEdge(Node *node)
-{
-	connect(edgeAdd->getFirst(), node);
-}
-
-void NeuralNetwork::connectAll(const std::vector<Node *>& sources,
-	const std::vector<Node *>& targets)
-{
-	for(size_t s = 0; s < sources.size(); s++)
-	{
-		for(size_t t = 0; t < targets.size(); t++)
-		{
-			if(canLink(sources[s], targets[t]))
-				connect(sources[s], targets[t]);
-		}
-	}
-}
-
-void NeuralNetwork::disconnectAll(const std::vector<Node *>& sources,
-	const std::vector<Node *>& targets)
-{
-	std::vector<Edge *>::iterator ite = edges.begin();
-	while(ite != edges.end())
-	{
-		Edge *edge = *ite;
-		if(std::find(sources.begin(), sources.end(), edge->getFirst()) == sources.end() ||
-			std::find(targets.begin(), targets.end(), edge->getSecond()) == targets.end())
-		{
-			ite++;
-			continue;
-		}
-		if(edgeSelected == edge)
-			selectEdge(NULL);
-		delete edge;
-		ite = edges.erase(ite);
-		modified = true;
-	}
-}
-
 /**
- * x da camada, o do nó mais à esquerda
+ * Indica se as partes são a mesma
  */
-static int columnX(const std::vector<Node *>& column)
+static bool same(const NeuralNetwork::Part& a, const NeuralNetwork::Part& b)
 {
-	int x = column[0]->getPosition().x;
-	for(size_t n = 1; n < column.size(); n++)
-		x = std::min(x, column[n]->getPosition().x);
-	return x;
-}
-
-static bool hasType(const std::vector<Node *>& nodes, Node::Type type)
-{
-	for(size_t n = 0; n < nodes.size(); n++)
-	{
-		if(nodes[n]->is(type))
-			return true;
-	}
-	return false;
-}
-
-std::vector<std::vector<Node *> > NeuralNetwork::columns()
-{
-	std::vector<Node *> sorted = neurons;
-	std::stable_sort(sorted.begin(), sorted.end(), [](Node *a, Node *b)
-	{
-		return a->getPosition().x < b->getPosition().x;
-	});
-	// cada camada junta os nós a menos da tolerância do mais à esquerda
-	std::vector<std::vector<Node *> > result;
-	std::vector<Node *>::iterator it;
-	for(it = sorted.begin(); it != sorted.end(); it++)
-	{
-		if(result.empty() ||
-			(*it)->getPosition().x - result.back()[0]->getPosition().x > LAYER_TOLERANCE)
-			result.push_back(std::vector<Node *>());
-		result.back().push_back(*it);
-	}
-	for(size_t c = 0; c < result.size(); c++)
-	{
-		std::stable_sort(result[c].begin(), result[c].end(), [](Node *a, Node *b)
-		{
-			return a->getPosition().y < b->getPosition().y;
-		});
-	}
-	return result;
-}
-
-NeuralNetwork::Layer NeuralNetwork::layerAt(int x)
-{
-	Layer layer;
-	std::vector<std::vector<Node *> > all = columns();
-	// a camada mais próxima dentro da tolerância
-	int found = -1;
-	int distance = LAYER_TOLERANCE + 1;
-	for(size_t c = 0; c < all.size(); c++)
-	{
-		if(abs(columnX(all[c]) - x) >= distance)
-			continue;
-		distance = abs(columnX(all[c]) - x);
-		found = (int)c;
-	}
-	if(found >= 0)
-	{
-		layer.nodes = all[found];
-		if(found > 0)
-			layer.prev = all[found - 1];
-		if(found + 1 < (int)all.size())
-			layer.next = all[found + 1];
-		return layer;
-	}
-	// sem camada no x, as vizinhas são as de antes e de depois dele
-	for(size_t c = 0; c < all.size(); c++)
-	{
-		if(columnX(all[c]) < x)
-			layer.prev = all[c];
-		else if(layer.next.empty())
-			layer.next = all[c];
-	}
-	return layer;
-}
-
-void NeuralNetwork::addToLayer(const std::vector<Node *>& nodes)
-{
-	Layer layer = layerAt(nodes[0]->getPosition().x);
-	// a camada nova fica no caminho entre as vizinhas
-	if(layer.nodes.empty())
-		disconnectAll(layer.prev, layer.next);
-	neurons.insert(neurons.end(), nodes.begin(), nodes.end());
-	// as amostras têm um valor por entrada e um alvo por saída
-	if(!nodes[0]->is(Node::TypeNeuron))
-		execution.forgetSamples();
-	connectAll(layer.prev, nodes);
-	connectAll(nodes, layer.next);
-	modified = true;
-}
-
-/**
- * Espaçamento entre os nós da camada: a distância mais comum, na grade
- */
-static int columnSpacing(const std::vector<Node *>& column)
-{
-	if(column.size() < 2)
-		return ARRANGE_MIN_NODE_SPACING;
-	std::vector<int> gaps;
-	for(size_t n = 1; n < column.size(); n++)
-		gaps.push_back(column[n]->getPosition().y - column[n - 1]->getPosition().y);
-	std::sort(gaps.begin(), gaps.end());
-	int spacing = (int)roundf(gaps[gaps.size() / 2] / (float)GRID_SIZE) * GRID_SIZE;
-	// nós empilhados ganham espaço para não se sobreporem
-	return std::max(spacing, ARRANGE_MIN_NODE_SPACING / 2);
-}
-
-void NeuralNetwork::addToColumn(Node::Type type, Rectangle area)
-{
-	cancelAction();
-	Node *node = newNode(type);
-	std::vector<Node *> added(1, node);
-	std::vector<std::vector<Node *> > all = columns();
-	if(all.empty())
-	{
-		// o primeiro nó fica no centro da área
-		Point p = toWorld((int)(area.x + area.width / 2), (int)(area.y + area.height / 2));
-		node->setPosition(snapToGrid(p.x), snapToGrid(p.y));
-		addToLayer(added);
-		selectNode(node);
-		return;
-	}
-	// centro vertical da rede antes do nó novo
-	int top = neurons[0]->getPosition().y, bottom = top;
-	std::vector<Node *>::iterator it;
-	for(it = neurons.begin(); it != neurons.end(); it++)
-	{
-		top = std::min(top, (*it)->getPosition().y);
-		bottom = std::max(bottom, (*it)->getPosition().y);
-	}
-	int center = (top + bottom) / 2;
-	// o neurônio vai na camada do selecionado; sem ele, como a entrada e a
-	// saída, na camada do tipo: a primeira com entradas, a última com os demais
-	int target = -1;
-	bool neuronSelected = type == Node::TypeNeuron && nodeSelected != NULL &&
-		nodeSelected->is(Node::TypeNeuron);
-	for(size_t c = 0; c < all.size(); c++)
-	{
-		bool inColumn = std::find(all[c].begin(), all[c].end(), nodeSelected) != all[c].end();
-		if(neuronSelected ? inColumn : (hasType(all[c], type) &&
-			(target < 0 || type != Node::TypeInput)))
-			target = (int)c;
-	}
-	if(target >= 0)
-	{
-		// abaixo do último, no x do selecionado se for desta camada
-		std::vector<Node *> column = all[target];
-		int spacing = columnSpacing(column);
-		Node *last = column.back();
-		int x = last->getPosition().x;
-		if(std::find(column.begin(), column.end(), nodeSelected) != column.end())
-			x = nodeSelected->getPosition().x;
-		node->setPosition(x, last->getPosition().y + spacing);
-		addToLayer(added);
-		// a camada com espaçamento igual, centralizada na rede
-		column.push_back(node);
-		int first = snapToGrid(center - spacing * ((int)column.size() - 1) / 2);
-		for(size_t n = 0; n < column.size(); n++)
-			column[n]->setPosition(column[n]->getPosition().x, first + spacing * (int)n);
-		selectNode(node);
-		return;
-	}
-	// sem a camada do tipo, cria uma: a de entrada antes da primeira, a de
-	// saída depois da última e a de neurônios depois das entradas
-	int x;
-	if(type == Node::TypeInput)
-		x = columnX(all.front()) - ARRANGE_MAX_LAYER_SPACING;
-	else if(type == Node::TypeOutput)
-		x = columnX(all.back()) + ARRANGE_MAX_LAYER_SPACING;
-	else
-	{
-		int inputs = -1;
-		for(size_t c = 0; c < all.size(); c++)
-		{
-			if(hasType(all[c], Node::TypeInput))
-				inputs = (int)c;
-		}
-		if(inputs < 0)
-			x = columnX(all.front()) - ARRANGE_MAX_LAYER_SPACING;
-		else if(inputs + 1 == (int)all.size())
-			x = columnX(all[inputs]) + ARRANGE_MAX_LAYER_SPACING;
-		else
-		{
-			int left = columnX(all[inputs]), right = columnX(all[inputs + 1]);
-			x = snapToGrid((left + right) / 2);
-			if(right - left < 2 * ARRANGE_MIN_LAYER_SPACING)
-			{
-				// sem espaço entre as camadas, as seguintes vão para a direita
-				x = left + ARRANGE_MAX_LAYER_SPACING;
-				for(size_t c = inputs + 1; c < all.size(); c++)
-				{
-					for(it = all[c].begin(); it != all[c].end(); it++)
-					{
-						const Point& p = (*it)->getPosition();
-						(*it)->setPosition(p.x + ARRANGE_MAX_LAYER_SPACING, p.y);
-					}
-				}
-			}
-		}
-	}
-	node->setPosition(x, snapToGrid(center));
-	addToLayer(added);
-	selectNode(node);
-}
-
-void NeuralNetwork::startLayer(int x, int y)
-{
-	cancelLayer();
-	actionState = ActionLayer;
-	layerStart = snapPosition(NULL, x, y);
-	Layer layer = layerAt(layerStart.x);
-	if(layer.nodes.empty())
-	{
-		// a rede começa pelas entradas, depois delas vêm os neurônios
-		layerType = hasType(neurons, Node::TypeInput) ? Node::TypeNeuron : Node::TypeInput;
-		return;
-	}
-	// sobre uma camada os nós entram nela, com o tipo dela
-	if(snapX != SnapLayer)
-		layerStart.x = columnX(layer.nodes);
-	snapX = SnapLayer;
-	layerType = layer.nodes[0]->getType();
-	std::vector<Node *>::iterator it;
-	for(it = layer.nodes.begin(); it != layer.nodes.end(); it++)
-	{
-		if(!(*it)->is(layerType))
-			layerType = Node::TypeNeuron;
-	}
-}
-
-void NeuralNetwork::updateLayer(int x, int y)
-{
-	// o tremor do clique não cria nós
-	if(layerNodes.empty() && abs(x - pressX) <= 3 && abs(y - pressY) <= 3)
-		return;
-	// um nó a mais a cada espaçamento arrastado, para cima ou para baixo
-	int distance = toWorld(x, y).y - layerStart.y;
-	int direction = distance < 0 ? -1 : 1;
-	size_t count = 1 + (size_t)floorf(abs(distance) / (float)ARRANGE_MIN_NODE_SPACING + 0.5f);
-	while(layerNodes.size() < count)
-		layerNodes.push_back(newNode(layerType));
-	while(layerNodes.size() > count)
-	{
-		delete layerNodes.back();
-		layerNodes.pop_back();
-	}
-	for(size_t n = 0; n < layerNodes.size(); n++)
-		layerNodes[n]->setPosition(layerStart.x,
-			layerStart.y + direction * ARRANGE_MIN_NODE_SPACING * (int)n);
-}
-
-void NeuralNetwork::finishLayer()
-{
-	actionState = ActionNone;
-	if(layerNodes.empty())
-		return;
-	addToLayer(layerNodes);
-	selectNode(layerNodes.back());
-	layerNodes.clear();
-}
-
-void NeuralNetwork::cancelLayer()
-{
-	std::vector<Node *>::iterator it;
-	for(it = layerNodes.begin(); it != layerNodes.end(); it++)
-		delete *it;
-	layerNodes.clear();
-	if(actionState == ActionLayer)
-		actionState = ActionNone;
-}
-
-double NeuralNetwork::randomWeight()
-{
-	// entre -1 e 1 com 2 casas
-	std::uniform_int_distribution<int> distribution(-100, 100);
-	return distribution(random) / 100.0;
-}
-
-void NeuralNetwork::selectNode(Node *node)
-{
-	if(nodeSelected == node)
-		return;
-	if(nodeSelected != NULL)
-		nodeSelected->setSelected(false);
-	nodeSelected = node;
-	if(nodeSelected == NULL)
-		return;
-	nodeSelected->setSelected(true);
-}
-
-void NeuralNetwork::selectEdge(Edge* edge)
-{
-	if(edgeSelected == edge)
-		return;
-	if(edgeSelected != NULL)
-		edgeSelected->setSelected(false);
-	edgeSelected = edge;
-	if(edgeSelected == NULL)
-		return;
-	edgeSelected->setSelected(true);
-}
-
-void NeuralNetwork::selectBias(NeuronNode* neuron)
-{
-	if(biasSelected == neuron)
-		return;
-	if(biasSelected != NULL)
-		biasSelected->setBiasSelected(false);
-	biasSelected = neuron;
-	if(biasSelected == NULL)
-		return;
-	biasSelected->setBiasSelected(true);
-}
-
-void NeuralNetwork::removeNode(Node *node)
-{
-	if(!node->is(Node::TypeNeuron))
-		execution.forgetSamples();
-	if(nodeSelected == node)
-		selectNode(NULL);
-	if(biasSelected == node)
-		selectBias(NULL);
-	if(nodeMoving == node || nodeToggle == node)
-	{
-		nodeMoving = nodeToggle = NULL;
-		bMoving = dragging = bDown = false;
-	}
-	if(edgeAdd->getFirst() == node)
-		actionState = ActionNone;
-	std::vector<Edge *>::iterator ite;
-	ite = edges.begin();
-	while(ite != edges.end())
-	{
-		Edge *edge = *ite;
-		if(edge->getFirst() != node && edge->getSecond() != node)
-		{
-			ite++;
-			continue;
-		}
-		if(edgeSelected == edge)
-			selectEdge(NULL);
-		delete *ite;
-		ite = edges.erase(ite);
-	}
-	std::vector<Node *>::iterator itn;
-	for(itn = neurons.begin(); itn != neurons.end(); itn++)
-	{
-		Node *nodeIte = *itn;
-		if(nodeIte != node)
-			continue;
-		delete nodeIte;
-		neurons.erase(itn);
-		break;
-	}
-	cancelLayer();
-	actionState = ActionNone;
-	modified = true;
-}
-
-void NeuralNetwork::removeEdge(Edge* edge)
-{
-	if(edgeSelected == edge)
-		selectEdge(NULL);
-	std::vector<Edge *>::iterator ite;
-	for(ite = edges.begin(); ite != edges.end(); ite++)
-	{
-		Edge *edgeIte = *ite;
-		if(edgeIte != edge)
-			continue;
-		delete edgeIte;
-		edges.erase(ite);
-		break;
-	}
-	cancelLayer();
-	actionState = ActionNone;
-	modified = true;
-}
-
-void NeuralNetwork::setFunction(NeuronNode *neuron, int function)
-{
-	neuron->setFunctionType(function);
-	notifyDataChanged();
-}
-
-void NeuralNetwork::keepRightOf(int left)
-{
-	if(neurons.empty())
-		return;
-	int lowest = neurons[0]->getPosition().x;
-	std::vector<Node *>::iterator it;
-	for(it = neurons.begin(); it != neurons.end(); it++)
-	{
-		if((*it)->getPosition().x < lowest)
-			lowest = (*it)->getPosition().x;
-	}
-	if(lowest >= left)
-		return;
-	for(it = neurons.begin(); it != neurons.end(); it++)
-	{
-		const Point& p = (*it)->getPosition();
-		(*it)->setPosition(p.x + left - lowest, p.y);
-	}
-}
-
-/**
- * Maior espaçamento entre min e max, múltiplo da grade, para count nós
- * caberem em size
- */
-static int arrangeSpacing(int count, float size, int min, int max)
-{
-	if(count < 2)
-		return 0;
-	int spacing = (int)(size / (count - 1)) / GRID_SIZE * GRID_SIZE;
-	if(spacing > max)
-		spacing = max;
-	return spacing < min ? min : spacing;
-}
-
-int NeuralNetwork::arrange(Rectangle area)
-{
-	cancelAction();
-	if(neurons.empty())
-		return 0;
-	std::map<Node *, std::vector<Node *> > sources;
-	std::vector<Edge *>::iterator ite;
-	for(ite = edges.begin(); ite != edges.end(); ite++)
-		sources[(*ite)->getSecond()].push_back((*ite)->getFirst());
-	// camada do neurônio: uma depois do nó mais distante que o alimenta
-	std::map<Node *, int> layers;
-	std::function<int(Node *)> layerOf = [&](Node *node) -> int
-	{
-		std::map<Node *, int>::iterator found = layers.find(node);
-		if(found != layers.end())
-			return found->second;
-		if(!node->is(Node::TypeNeuron))
-			return 0;
-		// num ciclo a volta ao neurônio encontra este valor e para
-		layers[node] = 1;
-		int layer = 1;
-		std::vector<Node *>::iterator its;
-		for(its = sources[node].begin(); its != sources[node].end(); its++)
-			layer = std::max(layer, layerOf(*its) + 1);
-		return layers[node] = layer;
-	};
-	int outputLayer = 1;
-	std::vector<Node *>::iterator it;
-	for(it = neurons.begin(); it != neurons.end(); it++)
-	{
-		if((*it)->is(Node::TypeNeuron))
-			outputLayer = std::max(outputLayer, layerOf(*it) + 1);
-	}
-	// colunas na ordem atual de cima para baixo, sem as camadas vazias
-	std::vector<std::vector<Node *> > columns(outputLayer + 1);
-	std::vector<Node *> sorted = neurons;
-	std::stable_sort(sorted.begin(), sorted.end(), [](Node *a, Node *b)
-	{
-		return a->getPosition().y < b->getPosition().y;
-	});
-	for(it = sorted.begin(); it != sorted.end(); it++)
-	{
-		Node *node = *it;
-		int layer = 0;
-		if(node->is(Node::TypeNeuron))
-			layer = layers[node];
-		else if(node->is(Node::TypeOutput))
-			layer = outputLayer;
-		columns[layer].push_back(node);
-	}
-	columns.erase(std::remove_if(columns.begin(), columns.end(),
-		[](const std::vector<Node *>& column) { return column.empty(); }), columns.end());
-	// as entradas de uma imagem, sozinhas na primeira camada, ficam em quadrado
-	// na ordem de leitura dos pixels
-	int side = getImageSide();
-	std::vector<Node *> image;
-	if(side > 0 && columns[0].size() == (size_t)(side * side))
-		image = readingOrder(Node::TypeInput);
-	int gridSize = image.empty() ? 0 : ARRANGE_PIXEL_SPACING * (side - 1);
-	int spacingX = arrangeSpacing((int)columns.size(), area.width - gridSize,
-		ARRANGE_MIN_LAYER_SPACING, ARRANGE_MAX_LAYER_SPACING);
-	int left = snapToGrid((int)(area.x + (area.width - gridSize -
-		spacingX * ((int)columns.size() - 1)) / 2));
-	std::map<Node *, Point> positions;
-	if(!image.empty())
-	{
-		int top = snapToGrid((int)(area.y + (area.height - gridSize) / 2));
-		for(size_t i = 0; i < image.size(); i++)
-			positions[image[i]] = Point(left + ARRANGE_PIXEL_SPACING * (int)(i % side),
-				top + ARRANGE_PIXEL_SPACING * (int)(i / side));
-		left += gridSize;
-	}
-	for(size_t c = image.empty() ? 0 : 1; c < columns.size(); c++)
-	{
-		std::vector<Node *>& column = columns[c];
-		// cada nó perto da altura média dos que o alimentam, para cruzar menos
-		std::map<Node *, float> heights;
-		for(it = column.begin(); it != column.end(); it++)
-		{
-			float sum = 0;
-			int count = 0;
-			std::vector<Node *>::iterator its;
-			for(its = sources[*it].begin(); its != sources[*it].end(); its++)
-			{
-				std::map<Node *, Point>::iterator placed = positions.find(*its);
-				if(placed == positions.end())
-					continue;
-				sum += placed->second.y;
-				count++;
-			}
-			heights[*it] = count > 0 ? sum / count : (*it)->getPosition().y;
-		}
-		std::stable_sort(column.begin(), column.end(), [&](Node *a, Node *b)
-		{
-			return heights[a] < heights[b];
-		});
-		int spacingY = arrangeSpacing((int)column.size(), area.height, ARRANGE_MIN_NODE_SPACING,
-			ARRANGE_MAX_NODE_SPACING);
-		int top = snapToGrid((int)(area.y + (area.height - spacingY * ((int)column.size() - 1)) / 2));
-		for(size_t n = 0; n < column.size(); n++)
-			positions[column[n]] = Point(left + spacingX * (int)c, top + spacingY * (int)n);
-	}
-	std::map<Node *, Point>::iterator itp;
-	for(itp = positions.begin(); itp != positions.end(); itp++)
-	{
-		const Point& old = itp->first->getPosition();
-		if(old.x == itp->second.x && old.y == itp->second.y)
-			continue;
-		itp->first->setPosition(itp->second);
-		modified = true;
-	}
-	return (int)columns.size();
-}
-
-void NeuralNetwork::setInputBias(InputNode *input, bool bias)
-{
-	input->setBias(bias);
-	execution.forgetSamples();
-	notifyDataChanged();
-}
-
-void NeuralNetwork::clear()
-{
-	execution.forgetSamples();
-	cancelLayer();
-	selectNode(NULL);
-	selectEdge(NULL);
-	selectBias(NULL);
-	std::vector<Edge *>::iterator ite;
-	for(ite = edges.begin(); ite != edges.end(); ite++)
-		delete *ite;
-	edges.clear();
-	std::vector<Node *>::iterator it;
-	for(it = neurons.begin(); it != neurons.end(); it++)
-		delete *it;
-	neurons.clear();
-	edgeAdd->setFirst(NULL);
-	nodeMoving = NULL;
-	nodeToggle = NULL;
-	showingImage = false;
-	bDown = false;
-	bMoving = false;
-	dragging = false;
-	actionState = ActionNone;
-	request = Request{ Request::None, NULL, NULL };
-	// a rede nova abre sem zoom e sem deslocamento
-	zoom = 1;
-	pan = Vector2{ 0, 0 };
-	panning = false;
-}
-
-void NeuralNetwork::notifyDataChanged()
-{
-	modified = true;
-	if(!running)
-		return;
-	execution.clearChanged();
-	execution.execute();
-}
-
-void NeuralNetwork::cancelAction()
-{
-	cancelLayer();
-	actionState = ActionNone;
-	nodeToggle = NULL;
-	bMoving = false;
-	dragging = false;
-	panning = false;
-	bDown = false;
-}
-
-void NeuralNetwork::pressNode(Node *node, int x, int y)
-{
-	selectEdge(NULL);
-	selectBias(NULL);
-	if(running)
-	{
-		// entradas e saídas alternam o valor, neurônios são selecionados
-		if(node->is(Node::TypeNeuron))
-			selectNode(node);
-		else
-			nodeToggle = node;
-	}
-	else
-	{
-		selectNode(node);
-		if(actionState == ActionConnect)
-		{
-			actionState = ActionNone;
-			addEdge(node);
-		}
-		else
-		{
-			actionState = ActionConnect;
-			edgeAdd->setFirst(node);
-			nodeAdd->setPosition(x, y);
-		}
-	}
-	bMoving = true;
-	nodeMoving = node;
-	this->x = node->getPosition().x;
-	this->y = node->getPosition().y;
+	return a.kind == b.kind && a.layer == b.layer && a.from == b.from && a.to == b.to;
 }
 
 void NeuralNetwork::mouseDown(int x, int y)
@@ -1208,131 +707,324 @@ void NeuralNetwork::mouseDown(int x, int y)
 	// o botão do meio já arrasta a vista
 	if(panning)
 		return;
-	int screenX = pressX = x;
-	int screenY = pressY = y;
-	Point p = toWorld(x, y);
-	x = downX = p.x;
-	y = downY = p.y;
-	nodeToggle = NULL;
-	dragging = false;
-	Node *node = neuronAt(x, y);
-	if(node != NULL)
+	Part part = partAt(toWorld(x, y));
+	if(running && part.kind == Part::Target)
 	{
-		pressNode(node, x, y);
-		bDown = true;
+		targets[part.to] = targets[part.to] != 0 ? 0 : 1;
+		clearChanged();
+		execute();
 		return;
 	}
-	actionState = ActionNone;
-	// Shift fora dos nós arrasta uma camada nova, mesmo sobre conexões e bias
-	if(!running && (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)))
+	if(running && part.kind == Part::Input)
 	{
-		selectNode(NULL);
-		selectEdge(NULL);
-		selectBias(NULL);
-		startLayer(x, y);
-		bDown = true;
+		inputs[part.to] = inputs[part.to] != 0 ? 0 : 1;
+		showingImage = false;
+		clearChanged();
+		execute();
 		return;
 	}
-	// alvo da saída na execução
-	node = running ? valueAt(x, y) : NULL;
-	if(node != NULL)
-		return toggle(node);
-	selectNode(NULL);
-	NeuronNode *bias = biasAt(x, y);
-	if(bias != NULL)
+	// o segundo clique no peso ou no bias selecionado o edita
+	if((part.kind == Part::Weight || part.kind == Part::Bias) && same(part, selected) &&
+		!isTraining())
 	{
-		selectEdge(NULL);
-		if(bias == biasSelected)
-			request = Request{ Request::EditBias, bias, NULL };
-		selectBias(bias);
-		return;
+		for(const Box& box : boxes)
+		{
+			if(same(box.part, part))
+				request = Request{ Request::Edit, part.layer, box.box };
+		}
 	}
-	selectBias(NULL);
-	Edge *edge = edgeAt(x, y);
-	if(edge != NULL && edge == edgeSelected && edge->IsInLabel(Point(x, y)))
-		request = Request{ Request::EditWeight, NULL, edge };
-	selectEdge(edge);
-	bDown = true;
+	select(part);
 	// no fundo vazio arrasta a vista
-	if(edge == NULL)
-		startPanning(screenX, screenY);
+	if(part.kind == Part::None)
+		startPanning(x, y);
+}
+
+void NeuralNetwork::mouseUp(int x, int y)
+{
+	panning = false;
+}
+
+void NeuralNetwork::mouseMove(int x, int y)
+{
+	if(!panning)
+		return;
+	pan.x += x - panX;
+	pan.y += y - panY;
+	panX = x;
+	panY = y;
 }
 
 void NeuralNetwork::mouseDoubleClick(int x, int y)
 {
-	Point p = toWorld(x, y);
-	x = p.x;
-	y = p.y;
-	Node *node = neuronAt(x, y);
-	// na execução cada clique na entrada ou na saída alterna o valor
-	if(node != NULL && running && !node->is(Node::TypeNeuron))
+	Part part = partAt(toWorld(x, y));
+	// na execução cada clique na entrada ou no alvo alterna o valor
+	if(isTraining() || (running && (part.kind == Part::Input || part.kind == Part::Target)))
 		return;
-	cancelAction();
-	if(node != NULL)
+	if(part.kind == Part::Weight || part.kind == Part::Bias)
 	{
-		if(node->is(Node::TypeOutput))
-			return;
-		selectNode(node);
-		request = Request{ Request::Menu, node, NULL };
-		return;
+		select(part);
+		for(const Box& box : boxes)
+		{
+			if(same(box.part, part))
+				request = Request{ Request::Edit, part.layer, box.box };
+		}
 	}
-	NeuronNode *bias = biasAt(x, y);
-	if(bias != NULL)
-	{
-		selectBias(bias);
-		request = Request{ Request::EditBias, bias, NULL };
-		return;
-	}
-	Edge *edge = edgeAt(x, y);
-	if(edge == NULL)
-		return;
-	selectEdge(edge);
-	request = Request{ Request::EditWeight, NULL, edge };
+	else if(part.kind != Part::None)
+		mouseRightDown(x, y);
 }
 
 void NeuralNetwork::mouseRightDown(int x, int y)
 {
-	cancelAction();
-	Point p = toWorld(x, y);
-	x = p.x;
-	y = p.y;
-	Node *node = neuronAt(x, y);
+	Vector2 point = toWorld(x, y);
+	Part part = partAt(point);
 	// o menu do bias é o do neurônio
-	if(node == NULL)
-		node = biasAt(x, y);
-	if(node != NULL)
-	{
-		selectEdge(NULL);
-		selectBias(NULL);
-		selectNode(node);
-		request = Request{ Request::Menu, node, NULL };
-		return;
-	}
-	Edge *edge = edgeAt(x, y);
-	selectNode(NULL);
-	selectBias(NULL);
-	selectEdge(edge);
-	if(edge != NULL)
-		request = Request{ Request::Menu, NULL, edge };
+	if(part.kind == Part::Bias)
+		part.kind = Part::Neuron;
+	select(part);
+	if(!isTraining() && (part.kind == Part::Input || part.kind == Part::Neuron ||
+		part.kind == Part::Layer))
+		request = Request{ Request::Menu, part.layer, Rectangle{ point.x, point.y, 0, 0 } };
 }
 
-void NeuralNetwork::toggle(Node *node)
+void NeuralNetwork::keyDown(int key)
 {
-	if(node->is(Node::TypeInput))
+	if(key == KEY_ESCAPE)
+		select(Part{ Part::None, 0, 0, 0 });
+	// no teclado do Mac a tecla delete é o backspace
+	else if((key == KEY_DELETE || key == KEY_BACKSPACE) && !running && !isTraining())
+		removeSelected();
+}
+
+void NeuralNetwork::addInput()
+{
+	int oldInputs = network.inputs, oldOutputs = network.outputs();
+	network.setInputs(network.inputs + 1, 0, random);
+	structureChanged(oldInputs, oldOutputs);
+	select(Part{ Part::Input, -1, network.inputs - 1, network.inputs - 1 });
+}
+
+/**
+ * Camada da parte selecionada, -1 sem uma
+ */
+static int layerOf(const NeuralNetwork::Part& part)
+{
+	return part.kind == NeuralNetwork::Part::None || part.kind == NeuralNetwork::Part::Input ?
+		-1 : part.layer;
+}
+
+void NeuralNetwork::addNeuron()
+{
+	int oldInputs = network.inputs, oldOutputs = network.outputs();
+	int count = (int)network.layers.size();
+	int layer = layerOf(selected) >= 0 ? selected.layer : count - 2;
+	if(count == 0)
 	{
-		((InputNode*)node)->toggleValue();
-		showingImage = false;
+		network.insertLayer(0, 1, Network::Linear, random);
+		layer = 0;
 	}
-	else if(node->is(Node::TypeOutput))
-		((OutputNode*)node)->toggleTarget();
-	execution.clearChanged();
-	execution.execute();
+	else if(layer < 0)
+	{
+		// sem oculta, cria uma antes da saída
+		layer = count - 1;
+		network.insertLayer(layer, 1, Network::Logistic, random);
+	}
+	else
+		network.resize(layer, network.layers[layer].size + 1, random);
+	structureChanged(oldInputs, oldOutputs);
+	int last = network.layers[layer].size - 1;
+	select(Part{ Part::Neuron, layer, last, last });
+}
+
+void NeuralNetwork::addLayer()
+{
+	int oldInputs = network.inputs, oldOutputs = network.outputs();
+	int count = (int)network.layers.size();
+	int index = 0;
+	if(count == 0)
+		network.insertLayer(0, 1, Network::Linear, random);
+	else
+	{
+		// depois da oculta selecionada ou antes da saída
+		int layer = layerOf(selected);
+		index = layer >= 0 && layer < count - 1 ? layer + 1 : count - 1;
+		network.insertLayer(index, 2, Network::Logistic, random);
+	}
+	structureChanged(oldInputs, oldOutputs);
+	select(Part{ Part::Layer, index, 0, 0 });
+}
+
+void NeuralNetwork::addOutput()
+{
+	int oldInputs = network.inputs, oldOutputs = network.outputs();
+	if(network.layers.empty())
+		network.insertLayer(0, 1, Network::Linear, random);
+	else
+		network.resize((int)network.layers.size() - 1, network.outputs() + 1, random);
+	structureChanged(oldInputs, oldOutputs);
+	int layer = (int)network.layers.size() - 1, last = network.outputs() - 1;
+	select(Part{ Part::Neuron, layer, last, last });
+}
+
+void NeuralNetwork::removeSelected()
+{
+	int oldInputs = network.inputs, oldOutputs = network.outputs();
+	if(selected.kind == Part::Input)
+		network.removeInput(selected.to);
+	else if(selected.kind == Part::Neuron || selected.kind == Part::Bias)
+		network.removeNeuron(selected.layer, selected.to, random);
+	else if(selected.kind == Part::Layer && selected.layer >= 0)
+		network.removeLayer(selected.layer, random);
+	else
+		return;
+	select(Part{ Part::None, 0, 0, 0 });
+	structureChanged(oldInputs, oldOutputs);
+}
+
+void NeuralNetwork::removeLayer(int layer)
+{
+	select(Part{ Part::Layer, layer, 0, 0 });
+	removeSelected();
+}
+
+void NeuralNetwork::setFunction(int layer, int function)
+{
+	network.layers[layer].function = function;
+	clearChanged();
+	modified = true;
+	execute();
+}
+
+void NeuralNetwork::setImageSide(int side)
+{
+	int oldInputs = network.inputs, oldOutputs = network.outputs();
+	if(side > 0)
+		network.setInputs(side * side, side, random);
+	else
+		network.side = 0;
+	structureChanged(oldInputs, oldOutputs);
+	select(Part{ Part::Layer, -1, 0, 0 });
+}
+
+float NeuralNetwork::getSelectedValue()
+{
+	const Network::Layer& layer = network.layers[selected.layer];
+	if(selected.kind == Part::Weight)
+		return layer.weights[(size_t)selected.from * layer.size + selected.to];
+	return layer.bias[selected.to];
+}
+
+bool NeuralNetwork::setSelectedValue(float value)
+{
+	if((selected.kind != Part::Weight && selected.kind != Part::Bias) ||
+		value == getSelectedValue())
+		return false;
+	Network::Layer& layer = network.layers[selected.layer];
+	if(selected.kind == Part::Weight)
+		layer.weights[(size_t)selected.from * layer.size + selected.to] = value;
+	else
+		layer.bias[selected.to] = value;
+	clearChanged();
+	heatmapsDirty = true;
+	modified = true;
+	execute();
+	return true;
+}
+
+void NeuralNetwork::saveToFile(const std::string& fileName)
+{
+	std::filesystem::path path = pathFromUtf8(fileName);
+	network.save(path);
+	samples.saveSamples(path);
+	modified = false;
+}
+
+int NeuralNetwork::loadSamples(const std::string& fileName)
+{
+	samples = Dataset(network.inputs, network.outputs());
+	samples = Dataset::loadSamples(pathFromUtf8(fileName), network.inputs, network.outputs());
+	return samples.size();
+}
+
+void NeuralNetwork::loadFromFile(const std::string& fileName)
+{
+	// lê o arquivo inteiro antes de alterar a rede, um arquivo inválido
+	// mantém a rede atual
+	Network loaded = Network::load(pathFromUtf8(fileName));
+	cancelTraining();
+	network = loaded;
+	samples = Dataset(network.inputs, network.outputs());
+	inputs.assign(network.inputs, 0);
+	targets.assign(network.outputs(), 0);
+	select(Part{ Part::None, 0, 0, 0 });
+	showingImage = false;
+	clearChanged();
+	heatmapsDirty = true;
+	imageDirty = true;
+	modified = false;
+	panning = false;
+	request = Request{ Request::None, 0, Rectangle{ 0, 0, 0, 0 } };
+	execute();
+}
+
+int NeuralNetwork::loadData(const std::string& path)
+{
+	std::filesystem::path file = pathFromUtf8(path);
+	Dataset loaded, loadedTest;
+	if(Dataset::isIdx(file))
+	{
+		loaded = Dataset::loadIdx(file);
+		std::filesystem::path testPath = Dataset::testPath(file);
+		if(!testPath.empty())
+			loadedTest = Dataset::loadIdx(testPath);
+	}
+	else
+	{
+		if(network.side == 0)
+			throw std::runtime_error("As entradas da rede precisam ser uma imagem para treinar "
+				"com uma pasta de imagens.");
+		loaded = pixels::fromFolder(path, network.side, network.outputs());
+	}
+	cancelTraining();
+	data = std::move(loaded);
+	test = std::move(loadedTest);
+	dataName = pathToUtf8(file.filename());
+	return data.size();
+}
+
+const std::string& NeuralNetwork::getDataName()
+{
+	return dataName;
+}
+
+int NeuralNetwork::getDataCount()
+{
+	return data.size();
+}
+
+int NeuralNetwork::getTestCount()
+{
+	return test.size();
+}
+
+bool NeuralNetwork::isModified()
+{
+	return modified;
+}
+
+NeuralNetwork::Part NeuralNetwork::getSelected()
+{
+	return selected;
+}
+
+const Network& NeuralNetwork::getNetwork()
+{
+	return network;
 }
 
 NeuralNetwork::Request NeuralNetwork::takeRequest()
 {
 	Request result = request;
-	request = Request{ Request::None, NULL, NULL };
+	request = Request{ Request::None, 0, Rectangle{ 0, 0, 0, 0 } };
 	return result;
 }
 
@@ -1340,10 +1032,9 @@ void NeuralNetwork::setRunning(bool running)
 {
 	this->running = running;
 	showingImage = showingImage && running;
-	cancelAction();
-	execution.clearChanged();
-	if(running)
-		execution.execute();
+	panning = false;
+	clearChanged();
+	execute();
 }
 
 bool NeuralNetwork::isRunning()
@@ -1351,89 +1042,167 @@ bool NeuralNetwork::isRunning()
 	return running;
 }
 
-Training::Result NeuralNetwork::train(bool withScreen)
+void NeuralNetwork::train(bool withScreen)
 {
-	Training::Result result = execution.train(withScreen);
-	if(result.changed || result.samplesChanged)
-		modified = true;
-	return result;
+	if(job)
+		return;
+	clearChanged();
+	job.reset(new Job());
+	Job* current = job.get();
+	current->network = network;
+	if(!data.empty())
+	{
+		current->data = &data;
+		current->test = test.empty() ? nullptr : &test;
+	}
+	else
+	{
+		// guarda a combinação da tela; com softmax, cujas saídas somam 1, só se
+		// algum alvo for diferente de 0
+		bool hasTarget = std::any_of(targets.begin(), targets.end(),
+			[](float target) { return target != 0; });
+		if(withScreen && !network.layers.empty() && (hasTarget ||
+			network.layers.back().function != Network::Softmax) && samples.remember(inputs, targets))
+			modified = true;
+		current->samples = samples;
+		current->data = &current->samples;
+	}
+	current->trainer.progress = [current](const Trainer::Progress& progress)
+	{
+		std::lock_guard<std::mutex> lock(current->mutex);
+		current->progress = progress;
+		current->hasProgress = true;
+	};
+	current->thread = std::thread([current]()
+	{
+		current->result = current->trainer.train(current->network, *current->data, current->test);
+		current->finished = true;
+	});
 }
 
-int NeuralNetwork::getSampleCount()
+bool NeuralNetwork::isTraining()
 {
-	return execution.getSampleCount();
+	return job != nullptr;
 }
 
-void NeuralNetwork::forgetSamples()
+void NeuralNetwork::stopTraining()
 {
-	if(execution.getSampleCount() > 0)
+	if(job)
+		job->trainer.stop = true;
+}
+
+void NeuralNetwork::cancelTraining()
+{
+	if(!job)
+		return;
+	job->trainer.stop = true;
+	job->thread.join();
+	job.reset();
+}
+
+bool NeuralNetwork::getProgress(Trainer::Progress& progress)
+{
+	if(!job)
+		return false;
+	std::lock_guard<std::mutex> lock(job->mutex);
+	progress = job->progress;
+	return job->hasProgress;
+}
+
+bool NeuralNetwork::takeResult(Trainer::Result& result)
+{
+	if(!job || !job->finished)
+		return false;
+	job->thread.join();
+	result = job->result;
+	if(result.changed)
+	{
+		// marca o que o treino mudou
+		const Network& trained = job->network;
+		changedWeights.assign(network.layers.size(), std::vector<char>());
+		changedBias.assign(network.layers.size(), std::vector<char>());
+		for(size_t l = 0; l < network.layers.size(); l++)
+		{
+			for(size_t i = 0; i < trained.layers[l].weights.size(); i++)
+				changedWeights[l].push_back(trained.layers[l].weights[i] !=
+					network.layers[l].weights[i]);
+			for(size_t j = 0; j < trained.layers[l].bias.size(); j++)
+				changedBias[l].push_back(trained.layers[l].bias[j] != network.layers[l].bias[j]);
+		}
+		network = trained;
+		heatmapsDirty = true;
 		modified = true;
-	execution.forgetSamples();
+	}
+	job.reset();
+	execute();
+	return true;
 }
 
 void NeuralNetwork::randomizeWeights()
 {
-	std::vector<bool> trainable = execution.isTrainable();
-	for(size_t i = 0; i < edges.size(); i++)
-	{
-		if(trainable[i])
-			edges[i]->setWeight(randomWeight());
-	}
-	for(Node* node : neurons)
-	{
-		if(node->is(Node::TypeNeuron))
-			((NeuronNode*)node)->setBias(randomWeight());
-	}
-	notifyDataChanged();
+	network.randomize(random);
+	clearChanged();
+	heatmapsDirty = true;
+	modified = true;
+	execute();
 }
 
-bool NeuralNetwork::isDrawingLayer()
+int NeuralNetwork::getSampleCount()
 {
-	return actionState == ActionLayer;
+	return samples.size();
+}
+
+void NeuralNetwork::forgetSamples()
+{
+	cancelTraining();
+	if(!samples.empty())
+		modified = true;
+	samples = Dataset(network.inputs, network.outputs());
+	data = Dataset();
+	test = Dataset();
+	dataName.clear();
 }
 
 bool NeuralNetwork::isEmpty()
 {
-	return neurons.empty();
-}
-
-bool NeuralNetwork::isMoving()
-{
-	return dragging;
-}
-
-bool NeuralNetwork::isConnecting()
-{
-	return actionState == ActionConnect;
-}
-
-bool NeuralNetwork::hasCycle()
-{
-	return execution.hasCycle();
+	return network.inputs == 0 && network.layers.empty();
 }
 
 double NeuralNetwork::getError()
 {
-	return execution.getError();
+	double error = 0;
+	for(size_t o = 0; !values.empty() && o < targets.size(); o++)
+		error += fabsf(targets[o] - values.back()[o]);
+	return error;
 }
 
 bool NeuralNetwork::isOnTarget()
 {
-	return execution.isOnTarget();
+	for(size_t o = 0; !values.empty() && o < targets.size(); o++)
+	{
+		if(!(fabsf(targets[o] - values.back()[o]) < Network::Tolerance))
+			return false;
+	}
+	return true;
 }
 
 int NeuralNetwork::getImageSide()
 {
-	return Graph::imageSide((int)readingOrder(Node::TypeInput).size());
+	return network.side;
 }
 
-bool NeuralNetwork::showImage(const std::vector<double>& values, int label)
+bool NeuralNetwork::showImage(const std::vector<float>& values, int label)
 {
 	running = true;
 	showingImage = true;
-	cancelAction();
-	execution.clearChanged();
-	return execution.showImage(values, label);
+	panning = false;
+	clearChanged();
+	std::copy(values.begin(), values.begin() + std::min(values.size(), inputs.size()),
+		inputs.begin());
+	for(size_t o = 0; o < targets.size(); o++)
+		targets[o] = (int)o == label ? 1 : 0;
+	execute();
+	return label >= 0 && label < (int)targets.size();
 }
 
 bool NeuralNetwork::isShowingImage()
@@ -1443,102 +1212,21 @@ bool NeuralNetwork::isShowingImage()
 
 int NeuralNetwork::getRecognized()
 {
-	std::vector<Node *> outputs = readingOrder(Node::TypeOutput);
-	int recognized = -1;
-	for(size_t i = 0; i < outputs.size(); i++)
-	{
-		double value = outputs[i]->getValue();
-		if(!std::isfinite(value))
-			return -1;
-		if(recognized < 0 || value > outputs[recognized]->getValue())
-			recognized = (int)i;
-	}
-	return recognized;
-}
-
-double NeuralNetwork::getOutputValue(int output)
-{
-	return readingOrder(Node::TypeOutput)[output]->getValue();
+	if(values.empty())
+		return -1;
+	return Trainer::recognized(values.back().data(), (int)values.back().size());
 }
 
 int NeuralNetwork::getExpected()
 {
-	std::vector<Node *> outputs = readingOrder(Node::TypeOutput);
 	int expected = -1;
-	for(size_t i = 0; i < outputs.size(); i++)
+	for(size_t o = 0; o < targets.size(); o++)
 	{
-		if(((OutputNode*)outputs[i])->getTarget() == 0)
+		if(targets[o] == 0)
 			continue;
 		if(expected >= 0)
 			return -1;
-		expected = (int)i;
+		expected = (int)o;
 	}
 	return expected;
-}
-
-bool NeuralNetwork::isModified()
-{
-	return modified;
-}
-
-Edge* NeuralNetwork::getSelectedEdge()
-{
-	return edgeSelected;
-}
-
-Node* NeuralNetwork::getSelectedNode()
-{
-	return nodeSelected;
-}
-
-NeuronNode* NeuralNetwork::getSelectedBias()
-{
-	return biasSelected;
-}
-
-void NeuralNetwork::saveToFile(const std::string& fileName)
-{
-	std::filesystem::path path = pathFromUtf8(fileName);
-	execution.getNetwork().save(path);
-	execution.saveSamples(path);
-	modified = false;
-}
-
-int NeuralNetwork::loadSamples(const std::string& fileName)
-{
-	return execution.loadSamples(pathFromUtf8(fileName));
-}
-
-void NeuralNetwork::loadFromFile(const std::string& fileName)
-{
-	// lê o arquivo inteiro antes de alterar a rede, um arquivo inválido
-	// mantém a rede atual
-	Graph network = Graph::load(pathFromUtf8(fileName));
-	clear();
-	for(const Graph::Node& data : network.nodes)
-	{
-		Node *node;
-		if(data.type == Graph::Neuron)
-		{
-			NeuronNode *neuron = new NeuronNode();
-			neuron->setFunctionType(data.function);
-			neuron->setBias(data.bias);
-			node = neuron;
-		}
-		else if(data.type == Graph::Input)
-		{
-			InputNode *input = new InputNode();
-			input->setBias(data.biasInput);
-			node = input;
-		}
-		else
-			node = new OutputNode();
-		node->setPosition(data.x, data.y);
-		neurons.push_back(node);
-	}
-	for(const Graph::Edge& edge : network.edges)
-		edges.push_back(new Edge(neurons[edge.source], neurons[edge.target], edge.weight));
-	modified = false;
-	if(running)
-		execution.execute();
 }

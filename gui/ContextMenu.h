@@ -4,36 +4,29 @@
 #include "NeuralNetwork.h"
 
 /**
- * Menu do clique direito: função de ativação do neurônio, tipo da entrada e
- * exclusão do nó ou da conexão
+ * Menu do clique direito: a função de ativação e a exclusão da camada ou do
+ * neurônio, e nas entradas a imagem que elas formam
  */
 class ContextMenu
 {
 private:
 	NeuralNetwork * network;
-	Node * node;
-	Edge * edge;
+	// camada, -1 nas entradas
+	int layer;
 	Vector2 position;
 	bool visible;
 private:
 	/**
 	 * Item de exclusão, desativado durante a execução
 	 */
-	void deleteItem(Clay_String text)
+	bool deleteItem(Clay_ElementId id, Clay_String text)
 	{
 		bool enabled = !network->isRunning();
 		Color color = ui::toColor(enabled ? ui::DangerColor : ui::FaintColor);
-		ui::separator(4);
-		if(!ui::menuItem(CLAY_ID("MenuExcluir"), icons::custom(icons::Trash, color), text, false,
-			enabled, ui::DangerColor))
-			return;
-		if(node != NULL)
-			network->removeNode(node);
-		else
-			network->removeEdge(edge);
-		close();
+		return ui::menuItem(id, icons::custom(icons::Trash, color), text, false, enabled,
+			ui::DangerColor);
 	}
-	void neuronItems(NeuronNode * neuron)
+	void layerItems()
 	{
 		static const Clay_String names[] = {
 			CLAY_STRING("Linear"),
@@ -44,54 +37,77 @@ private:
 			CLAY_STRING("ReLU"),
 			CLAY_STRING("Softmax"),
 		};
-		ui::groupTitle(CLAY_STRING("FUNÇÃO DE ATIVAÇÃO"));
-		for(int i = 0; i < Graph::FunctionCount; i++)
+		int function = network->getNetwork().layers[layer].function;
+		ui::groupTitle(CLAY_STRING("FUNÇÃO DA CAMADA"));
+		for(int i = 0; i < Network::FunctionCount; i++)
 		{
 			if(ui::menuItem(CLAY_IDI("MenuFuncao", i), icons::customFunction(i), names[i],
-				neuron->getFunctionType() == i))
+				function == i))
 			{
-				network->setFunction(neuron, i);
+				network->setFunction(layer, i);
 				close();
 			}
 		}
-		deleteItem(CLAY_STRING("Excluir neurônio"));
+		ui::separator(4);
+		if(network->getSelected().kind == NeuralNetwork::Part::Neuron &&
+			deleteItem(CLAY_ID("MenuExcluirNeuronio"), CLAY_STRING("Excluir neurônio")))
+		{
+			network->removeSelected();
+			close();
+		}
+		if(deleteItem(CLAY_ID("MenuExcluirCamada"), CLAY_STRING("Excluir camada")))
+		{
+			network->removeLayer(layer);
+			close();
+		}
 	}
-	void inputItems(InputNode * input)
+	void inputItems()
 	{
-		Color color = ui::toColor(ui::NodeColor);
-		ui::groupTitle(CLAY_STRING("TIPO DA ENTRADA"));
-		if(ui::menuItem(CLAY_ID("MenuDado"), icons::custom(icons::InputData, color),
-			CLAY_STRING("Dado (0 ou 1)"), !input->isBias()))
+		static const int sides[] = { 0, 8, 16, 28 };
+		static const Clay_String names[] = {
+			CLAY_STRING("Entradas soltas"),
+			CLAY_STRING("Imagem 8 × 8"),
+			CLAY_STRING("Imagem 16 × 16"),
+			CLAY_STRING("Imagem 28 × 28"),
+		};
+		Color color = ui::toColor(network->isRunning() ? ui::FaintColor : ui::NodeColor);
+		int side = network->getImageSide();
+		ui::groupTitle(CLAY_STRING("ENTRADAS"));
+		for(int i = 0; i < 4; i++)
 		{
-			network->setInputBias(input, false);
+			icons::Icon icon = sides[i] == 0 ? icons::InputData : icons::Image;
+			if(ui::menuItem(CLAY_IDI("MenuImagem", i), icons::custom(icon, color), names[i],
+				side == sides[i], !network->isRunning()))
+			{
+				network->setImageSide(sides[i]);
+				close();
+			}
+		}
+		if(network->getSelected().kind != NeuralNetwork::Part::Input)
+			return;
+		ui::separator(4);
+		if(deleteItem(CLAY_ID("MenuExcluirEntrada"), CLAY_STRING("Excluir entrada")))
+		{
+			network->removeSelected();
 			close();
 		}
-		if(ui::menuItem(CLAY_ID("MenuBias"), icons::custom(icons::InputBias, color),
-			CLAY_STRING("Bias (sempre 1)"), input->isBias()))
-		{
-			network->setInputBias(input, true);
-			close();
-		}
-		deleteItem(CLAY_STRING("Excluir entrada"));
 	}
 public:
 	ContextMenu()
 	{
 		network = NULL;
-		node = NULL;
-		edge = NULL;
+		layer = -1;
 		position = Vector2{ 0, 0 };
 		visible = false;
 	}
 	/**
-	 * Abre o menu do nó ou da conexão, position é o canto do menu na janela em
-	 * unidades da interface
+	 * Abre o menu da camada ou das entradas (-1), position é o canto do menu
+	 * na janela em unidades da interface
 	 */
-	void show(NeuralNetwork * network, Node * node, Edge * edge, Vector2 position)
+	void show(NeuralNetwork * network, int layer, Vector2 position)
 	{
 		this->network = network;
-		this->node = node;
-		this->edge = edge;
+		this->layer = layer;
 		this->position = position;
 		visible = true;
 	}
@@ -105,6 +121,12 @@ public:
 	}
 	void layout()
 	{
+		// a camada pode ter sido excluída por outro caminho
+		if(layer >= (int)network->getNetwork().layers.size())
+		{
+			close();
+			return;
+		}
 		// mantém o menu dentro da janela com o tamanho do quadro anterior
 		Clay_ElementData data = Clay_GetElementData(CLAY_ID("Menu"));
 		Vector2 offset = position;
@@ -126,20 +148,10 @@ public:
 				.attachTo = CLAY_ATTACH_TO_ROOT },
 			.border = { .color = ui::PanelBorderColor, .width = CLAY_BORDER_OUTSIDE(1) } })
 		{
-			if(node != NULL && node->is(Node::TypeNeuron))
-				neuronItems((NeuronNode*)node);
-			else if(node != NULL && node->is(Node::TypeInput))
-				inputItems((InputNode*)node);
-			else if(node != NULL)
-			{
-				ui::groupTitle(CLAY_STRING("SAÍDA"));
-				deleteItem(CLAY_STRING("Excluir saída"));
-			}
+			if(layer >= 0)
+				layerItems();
 			else
-			{
-				ui::groupTitle(CLAY_STRING("CONEXÃO"));
-				deleteItem(CLAY_STRING("Excluir conexão"));
-			}
+				inputItems();
 		}
 	}
 };

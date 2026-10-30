@@ -110,7 +110,7 @@ static int train(const std::string& input, const std::string& data, const std::s
 	auto start = std::chrono::steady_clock::now();
 	trainer.progress = [&](const Trainer::Progress& progress)
 	{
-		if(!progress.epochs)
+		if(!progress.epochs || progress.done < 1)
 			return;
 		double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() -
 			start).count();

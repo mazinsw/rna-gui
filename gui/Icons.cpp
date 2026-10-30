@@ -87,12 +87,12 @@ namespace icons
 		Vector2 size = { 18, 18 };
 		if(icon == Arrow)
 			size = Vector2{ 16, 16 };
-		else if(icon == InputData || icon == InputBias || icon == Trash)
+		else if(icon == InputData || icon == Image || icon == Trash)
 			size = Vector2{ 30, 20 };
 		else if(icon == Check)
 			size = Vector2{ 14, 14 };
 		float stroke = icon == Check ? 2 : icon == Trash ? 1.6f : 1.8f;
-		if(icon == InputData || icon == InputBias)
+		if(icon == InputData)
 			stroke = 2;
 		Canvas c(bounds, size, stroke, color);
 		switch(icon)
@@ -152,6 +152,12 @@ namespace icons
 			c.lines({ { 7.5f, 8 }, { 7.5f, 12.5f } });
 			c.lines({ { 10.5f, 8 }, { 10.5f, 12.5f } });
 			break;
+		case Fit:
+			c.lines({ { 2.5f, 6.5f }, { 2.5f, 2.5f }, { 6.5f, 2.5f } });
+			c.lines({ { 11.5f, 2.5f }, { 15.5f, 2.5f }, { 15.5f, 6.5f } });
+			c.lines({ { 15.5f, 11.5f }, { 15.5f, 15.5f }, { 11.5f, 15.5f } });
+			c.lines({ { 6.5f, 15.5f }, { 2.5f, 15.5f }, { 2.5f, 11.5f } });
+			break;
 		case Arrow:
 			c.lines({ { 3, 8 }, { 12, 8 } });
 			c.lines({ { 8.5f, 4.5f }, { 12, 8 }, { 8.5f, 11.5f } });
@@ -159,9 +165,17 @@ namespace icons
 		case InputData:
 			c.lines({ { 4, 16 }, { 14, 16 }, { 14, 4 }, { 26, 4 } });
 			break;
-		case InputBias:
-			c.lines({ { 3, 4 }, { 27, 4 } });
+		case Image:
+		{
+			// quadrado de pixels
+			Canvas thin(bounds, size, 1.2f, color);
+			c.box(8.5f, 3.5f, 13, 13, 2, false);
+			thin.lines({ { 13, 3.5f }, { 13, 16.5f } });
+			thin.lines({ { 17, 3.5f }, { 17, 16.5f } });
+			thin.lines({ { 8.5f, 8 }, { 21.5f, 8 } });
+			thin.lines({ { 8.5f, 12 }, { 21.5f, 12 } });
 			break;
+		}
 		case Trash:
 			c.lines({ { 9.5f, 6 }, { 20.5f, 6 } });
 			c.lines({ { 13, 6 }, { 13, 4.5f }, { 17, 4.5f }, { 17, 6 } });
@@ -179,7 +193,7 @@ namespace icons
 		axis.lines({ { 15, 1 }, { 15, 19 } });
 		axis.lines({ { 1, 10 }, { 29, 10 } });
 		Canvas c(bounds, Vector2{ 30, 20 }, 2, color);
-		// mesma ordem de Graph::Function
+		// mesma ordem de Network::Function
 		switch(function)
 		{
 		case 0:

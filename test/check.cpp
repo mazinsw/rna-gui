@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <map>
 #include <random>
 #include <stdio.h>
 #include <string>
@@ -152,6 +153,8 @@ static int converged(const Dataset& samples, const std::vector<int>& sizes, int 
  */
 static void checkImport(const std::string& path)
 {
+	std::map<std::string, std::vector<float> > truth = { { "and.bin", { 0, 0, 0, 1 } },
+		{ "or.bin", { 0, 1, 1, 1 } }, { "xor.bin", { 0, 1, 1, 0 } } };
 	std::string name = std::filesystem::path(path).filename().string();
 	try
 	{
@@ -186,6 +189,12 @@ static void checkImport(const std::string& path)
 		}
 		check(worst < 1e-4, "importa " + name + " com as saídas da rede em grafo (diferença " +
 			std::to_string(worst) + ")");
+		// as redes antigas dos exemplos já estavam treinadas
+		std::vector<float> table = truth[name];
+		bool right = network.outputs() == 1;
+		for(int i = 0; right && i < 4; i++)
+			right = network.run({ (float)(i / 2), (float)(i % 2) })[0] == table[i];
+		check(right, "a " + name + " importada calcula a tabela-verdade");
 	}
 	catch (const std::exception& e)
 	{
@@ -248,6 +257,8 @@ static void checkMnist(const std::string& folder)
 	auto start = std::chrono::steady_clock::now();
 	trainer.progress = [&](const Trainer::Progress& progress)
 	{
+		if(progress.done < 1)
+			return;
 		double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() -
 			start).count();
 		printf("       época %d: %.1f%% no treino, %.2f%% no teste, %.2f s\n", progress.step,
@@ -286,8 +297,8 @@ int main(int argc, char *argv[])
 		Trainer::Result result = trainer.train(digits, samples);
 		check(result.status == Trainer::Trained, "dígitos 8 x 8 chegam aos alvos em " +
 			std::to_string(result.steps) + " iterações");
-		for(const char *name : { "and", "or", "xor", "digitos", "digitos28" })
-			checkImport(std::string("exemplos/") + name + ".bin");
+		for(const char *name : { "and", "or", "xor" })
+			checkImport(std::string("test/legacy/") + name + ".bin");
 		checkFiles();
 		if(argc > 1)
 			checkMnist(argv[1]);

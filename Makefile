@@ -88,9 +88,8 @@ TRAINING_SRCS := training/Graph.cpp training/Training.cpp training/Network.cpp \
                  training/Dataset.cpp training/Trainer.cpp
 CLI_SRCS  := $(TRAINING_SRCS) console/main.cpp cli/Console.cpp
 GUI_SRCS  := $(TRAINING_SRCS) gui/main.cpp gui/ClayRaylib.cpp gui/Widgets.cpp gui/Input.cpp \
-             gui/Platform.cpp gui/Resources.cpp gui/Node.cpp gui/Edge.cpp gui/Number.cpp \
-             gui/InputNode.cpp gui/NeuronNode.cpp gui/OutputNode.cpp gui/NeuralNetwork.cpp \
-             gui/Execution.cpp gui/Shapes.cpp gui/Icons.cpp gui/Settings.cpp gui/Pixels.cpp
+             gui/Platform.cpp gui/Resources.cpp gui/Draw.cpp gui/Number.cpp gui/NeuralNetwork.cpp \
+             gui/Shapes.cpp gui/Icons.cpp gui/Settings.cpp gui/Pixels.cpp
 # a linha de comando lê as imagens com o raylib, sem a janela
 RNA_SRCS  := $(TRAINING_SRCS) cli/main.cpp cli/Console.cpp gui/Platform.cpp gui/Number.cpp \
              gui/Pixels.cpp

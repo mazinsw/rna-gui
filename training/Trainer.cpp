@@ -312,7 +312,7 @@ Trainer::Result Trainer::rprop(Network& network, const Dataset& samples)
 			best = network;
 		}
 		if(progress)
-			progress(Progress{ false, result.steps, MaxIterations, evaluation.absolute,
+			progress(Progress{ false, result.steps, MaxIterations, 1, evaluation.absolute,
 				evaluation.labeled > 0 ? (double)evaluation.right / evaluation.labeled : -1, -1 });
 	}
 	// fica com os pesos que acertam todas as amostras, mesmo que outros
@@ -377,6 +377,9 @@ Trainer::Result Trainer::sgd(Network& network, const Dataset& samples, const Dat
 			right += evaluation.right;
 			labeled += evaluation.labeled;
 			done += size;
+			if(progress && first / batch % ProgressBatches == ProgressBatches - 1 && done < count)
+				progress(Progress{ true, epoch, epochs, (float)done / count, error / done,
+					labeled > 0 ? (double)right / labeled : -1, result.testAccuracy });
 			for(size_t l = 0; l < network.layers.size(); l++)
 			{
 				Network::Layer& layer = network.layers[l];
@@ -403,7 +406,7 @@ Trainer::Result Trainer::sgd(Network& network, const Dataset& samples, const Dat
 		if(test != nullptr)
 			result.testAccuracy = accuracy(network, *test);
 		if(progress)
-			progress(Progress{ true, epoch, epochs, result.errorAfter, result.accuracy,
+			progress(Progress{ true, epoch, epochs, 1, result.errorAfter, result.accuracy,
 				result.testAccuracy });
 	}
 	result.changed = differs(network, initial);

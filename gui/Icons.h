@@ -21,11 +21,13 @@ namespace icons
 		Arrange,
 		Dice,
 		Forget,
+		// cantos da vista que mostra a rede inteira
+		Fit,
 		// dentro da entrada, 16x16
 		Arrow,
 		// menu, em uma caixa 30x20
 		InputData,
-		InputBias,
+		Image,
 		Trash,
 		// marca do item atual do menu, 14x14
 		Check

@@ -1,347 +1,226 @@
 #ifndef _NEURALNETWORK_H_
 #define _NEURALNETWORK_H_
 #include <raylib.h>
+#include <memory>
 #include <random>
-#include <stdlib.h>
 #include <string>
 #include <vector>
-#include "Node.h"
-#include "Edge.h"
-#include "Execution.h"
-#include "InputNode.h"
-#include "NeuronNode.h"
-#include "OutputNode.h"
+#include "../training/Dataset.h"
+#include "../training/Network.h"
+#include "../training/Trainer.h"
 
 /**
- * Área de edição da rede, recebe os eventos de mouse e teclado com
- * coordenadas relativas ao seu canto superior esquerdo. A vista tem zoom e
- * deslocamento: os nós ficam em coordenadas da rede, convertidas na entrada.
+ * Área de edição da rede em camadas, recebe os eventos de mouse com
+ * coordenadas relativas ao seu canto superior esquerdo. As entradas e as
+ * camadas ficam em colunas, da esquerda para a direita: as pequenas mostram
+ * os nós e as ligações, as grandes viram blocos com o mapa dos pesos e a
+ * imagem grande, um quadro com os pixels. A vista tem zoom e deslocamento.
  */
 class NeuralNetwork
 {
 public:
 	/**
-	 * Pedido da área de edição para a janela: editar um peso ou um bias no
-	 * lugar ou abrir o menu de um nó ou de uma conexão
+	 * Parte da rede apontada ou selecionada
+	 */
+	struct Part
+	{
+		enum Kind
+		{
+			None,
+			Input,
+			Neuron,
+			// ligação da entrada (ou neurônio da camada anterior) from ao
+			// neurônio to
+			Weight,
+			Bias,
+			// a coluna inteira, das entradas com layer -1
+			Layer,
+			// alvo da saída to, na execução
+			Target
+		};
+		Kind kind;
+		// camada, -1 nas entradas
+		int layer;
+		int from, to;
+	};
+
+	/**
+	 * Pedido para a janela: editar no lugar o peso ou o bias selecionado ou
+	 * abrir o menu da camada (-1 nas entradas)
 	 */
 	struct Request
 	{
 		enum Kind
 		{
 			None,
-			EditWeight,
-			EditBias,
+			Edit,
 			Menu
 		};
 		Kind kind;
-		Node *node;
-		Edge *edge;
+		int layer;
+		// rótulo editado ou o que recebe o menu, na rede
+		Rectangle box;
 	};
 private:
-	std::vector<Node *> neurons;
-	std::vector<Edge *> edges;
-	int x, y, downX, downY;
-	bool bDown;
-	bool bMoving;
-	// o nó pressionado já saiu do lugar, um clique com tremor não o move
-	bool dragging;
-	// alinhamento do nó arrastado ou posicionado em cada eixo
-	int snapX, snapY;
+	/**
+	 * Coluna do desenho: as entradas ou uma camada
+	 */
+	struct Column
+	{
+		enum Kind
+		{
+			// nós em pé, os centros em x = left
+			Nodes,
+			// entradas de uma imagem pequena, um nó por pixel
+			Grid,
+			// camada ou entradas grandes demais para os nós
+			Block,
+			// imagem grande
+			Frame
+		};
+		Kind kind;
+		int count;
+		float left, right, top, bottom;
+		// as ligações com a anterior são desenhadas uma a uma
+		bool lines;
+
+		/**
+		 * Centro do nó i, nas colunas Nodes e Grid
+		 */
+		Vector2 node(int i) const;
+	};
+
+	/**
+	 * Rótulo ou caixa desenhada no último quadro, para os cliques
+	 */
+	struct Box
+	{
+		Rectangle box;
+		Part part;
+	};
+
+	struct Job;
+private:
+	Network network;
+	// amostras guardadas pelo treino
+	Dataset samples;
+	// imagens de fora, que o treino usa no lugar das amostras, e o teste
+	Dataset data, test;
+	std::string dataName;
+	// valores das entradas e alvos das saídas na tela e os valores de cada
+	// camada calculados com eles
+	std::vector<float> inputs, targets;
+	std::vector<std::vector<float> > values;
+	// pesos e bias alterados pelo último treino
+	std::vector<std::vector<char> > changedWeights, changedBias;
+	std::vector<Column> columns;
+	std::vector<Box> boxes;
+	Part selected;
+	bool running;
+	// as entradas têm os pixels de uma imagem, cada saída é uma classe
+	bool showingImage;
+	bool modified;
 	// vista: posição na área de edição = posição na rede * zoom + pan
 	float zoom;
 	Vector2 pan;
 	// arrastando a vista, com a última posição do mouse na área de edição
 	bool panning;
 	int panX, panY;
-	int actionState;
-	Node *nodeAdd;
-	Edge *edgeAdd;
-	Node *nodeMoving;
-	Node *nodeSelected;
-	Edge * edgeSelected;
-	// neurônio com o rótulo do bias selecionado
-	NeuronNode *biasSelected;
-	bool modified;
-	// modo de execução: as entradas e as saídas alternam entre 0 e 1 ao clicar
-	bool running;
-	// entrada ou saída que alterna o valor se o botão for solto sem arrastar
-	Node *nodeToggle;
-	// as entradas têm os pixels de uma imagem, cada saída é uma classe
-	bool showingImage;
-	int pressX, pressY;
 	Request request;
-	Execution execution;
 	std::mt19937 random;
-	// camada arrastada com Shift: nós da prévia, ainda fora da rede, a partir
-	// do ponto pressionado
-	std::vector<Node *> layerNodes;
-	Point layerStart;
-	Node::Type layerType;
+	// pixels das entradas no quadro e mapa dos pesos de cada camada em bloco,
+	// refeitos quando mudam
+	Texture2D image;
+	bool imageDirty;
+	std::vector<Texture2D> heatmaps;
+	bool heatmapsDirty;
+	std::unique_ptr<Job> job;
 private:
-	enum ActionState
-	{
-		ActionNone = 0,
-		ActionLayer,
-		ActionConnect
-	};
-	enum Snap
-	{
-		SnapNone = 0,
-		// ponto da grade
-		SnapGrid,
-		// camada (coluna) ou linha de outro nó
-		SnapLayer
-	};
 	/**
-	 * Camada (coluna de nós) e as vizinhas imediatas, de cima para baixo
+	 * Monta as colunas da rede atual, centralizadas na altura 0
 	 */
-	struct Layer
-	{
-		std::vector<Node *> prev, nodes, next;
-	};
-private:
-	void selectNode(Node *node);
-	void selectEdge(Edge *edge);
-	void selectBias(NeuronNode *neuron);
-	void addEdge(Node *node);
-	void updateAddEdge(int x, int y);
-
-	/**
-	 * Nós agrupados em camadas pelo x, da esquerda para a direita, cada uma de
-	 * cima para baixo
-	 */
-	std::vector<std::vector<Node *> > columns();
-
-	/**
-	 * Camada no x, vazia se não houver, e as vizinhas dela
-	 */
-	Layer layerAt(int x);
-
-	/**
-	 * Indica se a ligação automática entre camadas cabe: a saída não alimenta
-	 * nós e a entrada não é alimentada
-	 */
-	bool canLink(Node *first, Node *second);
-
-	/**
-	 * Conexão nova, com peso 1 para a saída e aleatório nas demais, se for
-	 * permitida
-	 */
-	void connect(Node *first, Node *second);
-	void connectAll(const std::vector<Node *>& sources, const std::vector<Node *>& targets);
-	void disconnectAll(const std::vector<Node *>& sources, const std::vector<Node *>& targets);
-
-	/**
-	 * Põe os nós na rede, na camada do x deles, ligados às camadas vizinhas: a
-	 * anterior alimenta cada um e cada um alimenta a posterior. Numa camada nova
-	 * entre duas, as conexões diretas entre elas são removidas.
-	 */
-	void addToLayer(const std::vector<Node *>& nodes);
-
-	/**
-	 * Adiciona um nó abaixo do último da camada do tipo e a redistribui no
-	 * centro vertical da rede; sem a camada, cria uma. Na rede vazia o nó fica
-	 * no centro da área.
-	 */
-	void addToColumn(Node::Type type, Rectangle area);
-	void startLayer(int x, int y);
-	void updateLayer(int x, int y);
-	void finishLayer();
-	void cancelLayer();
-	Node *neuronAt(int x, int y);
-	Node *valueAt(int x, int y);
-	NeuronNode *biasAt(int x, int y);
-	Edge* findEdge(Node* first, Node* second);
-	Edge* edgeAt(int x, int y);
-	bool canConnect(Node* first, Node* second);
-	void clear();
+	void arrange();
 	void draw();
+	void drawLayerLines(int layer);
+	void drawColumn(int column);
+	void drawCaption(int column);
+	void updateTextures();
+	void unloadTextures();
 
 	/**
-	 * Linhas de alinhamento do nó arrastado ou posicionado, na tela, nos
-	 * limites da área de edição
+	 * Indica se o bloco da camada mostra os pesos de cada neurônio na forma da
+	 * imagem das entradas
 	 */
-	void drawGuides(Rectangle bounds);
+	bool isMosaic(int layer);
 
 	/**
-	 * Posição na rede de um ponto da área de edição
+	 * Parte sob o ponto da rede, os rótulos por cima dos nós e das ligações
 	 */
-	Point toWorld(int x, int y);
+	Part partAt(Vector2 point);
+	bool isSelected(Part::Kind kind, int layer, int from, int to = 0);
+	void select(Part part);
+
+	/**
+	 * Recalcula os valores de cada camada com as entradas da tela
+	 */
+	void execute();
+
+	/**
+	 * Depois de mudar a estrutura: ajusta as entradas e os alvos da tela e
+	 * esquece as amostras se as entradas ou as saídas mudaram
+	 */
+	void structureChanged(int oldInputs, int oldOutputs);
+	void clearChanged();
+	Vector2 toWorld(int x, int y);
+
+	/**
+	 * Limites da rede desenhada, na rede
+	 */
+	Rectangle bounds();
 	void startPanning(int x, int y);
 
 	/**
-	 * Posição do nó alinhada à camada ou à linha de um nó próximo e, sem
-	 * nenhum, à grade. Com Alt (Option no Mac) fica livre.
+	 * Para o treino em andamento e espera a thread terminar
 	 */
-	Point snapPosition(Node *node, int x, int y);
-	void toggle(Node *node);
-	double randomWeight();
-	NeuronNode *newNeuron();
-	Node *newNode(Node::Type type);
-	void pressNode(Node *node, int x, int y);
-	void updateInfluence();
-
-	/**
-	 * Nós do tipo na ordem de leitura: de cima para baixo e, na mesma altura,
-	 * da esquerda para a direita. Sem as entradas de bias.
-	 */
-	std::vector<Node *> readingOrder(Node::Type type);
-
-	/**
-	 * Número de cada saída à direita dela, a reconhecida em destaque
-	 */
-	void drawClasses();
-
-	/**
-	 * Encerra a conexão em andamento e o arraste
-	 */
-	void cancelAction();
+	void cancelTraining();
 public:
-	void keyDown(int key)
-	{
-		if(key == KEY_ESCAPE)
-		{
-			if(actionState == ActionConnect)
-			{
-				actionState = ActionNone;
-			}
-			else if(actionState == ActionLayer)
-			{
-				cancelLayer();
-			}
-		}
-		// no teclado do Mac a tecla delete é o backspace
-		else if((key == KEY_DELETE || key == KEY_BACKSPACE) && !running)
-		{
-			if(nodeSelected != NULL)
-				removeNode(nodeSelected);
-			else if(edgeSelected != NULL)
-				removeEdge(edgeSelected);
-		}
-		else if(key == KEY_UP)
-		{
-			if(nodeSelected != NULL)
-			{
-				nodeSelected->setPosition(nodeSelected->getPosition().x,
-					nodeSelected->getPosition().y - 1);
-				modified = true;
-			}
-		}
-		else if(key == KEY_DOWN)
-		{
-			if(nodeSelected != NULL)
-			{
-				nodeSelected->setPosition(nodeSelected->getPosition().x,
-					nodeSelected->getPosition().y + 1);
-				modified = true;
-			}
-		}
-		else if(key == KEY_LEFT)
-		{
-			if(nodeSelected != NULL)
-			{
-				nodeSelected->setPosition(nodeSelected->getPosition().x - 1,
-					nodeSelected->getPosition().y);
-				modified = true;
-			}
-		}
-		else if(key == KEY_RIGHT)
-		{
-			if(nodeSelected != NULL)
-			{
-				nodeSelected->setPosition(nodeSelected->getPosition().x + 1,
-					nodeSelected->getPosition().y);
-				modified = true;
-			}
-		}
-	}
+	NeuralNetwork();
+	~NeuralNetwork();
 
-	/**
-	 * Botão esquerdo pressionado: no nó seleciona, arrasta e conecta (na
-	 * execução alterna a entrada ou o alvo da saída); no peso ou no bias o
-	 * primeiro clique seleciona e o segundo pede a edição. Com Shift no fundo
-	 * começa a arrastar uma camada nova.
-	 */
-	void mouseDown(int x, int y);
-	void mouseUp(int x, int y)
-	{
-		if(actionState == ActionLayer)
-			finishLayer();
-		// um clique sem arrastar alterna o valor da entrada ou da saída
-		if(nodeToggle != NULL && abs(x - pressX) <= 3 && abs(y - pressY) <= 3)
-			toggle(nodeToggle);
-		nodeToggle = NULL;
-		bMoving = false;
-		dragging = false;
-		panning = false;
-		bDown = false;
-	}
-
-	/**
-	 * Clique duplo: pede o menu do neurônio ou da entrada e a edição do peso
-	 * ou do bias
-	 */
-	void mouseDoubleClick(int x, int y);
-
-	/**
-	 * Botão direito: seleciona e pede o menu do nó ou da conexão
-	 */
-	void mouseRightDown(int x, int y);
-	void mouseMove(int x, int y)
-	{
-		if(panning)
-		{
-			pan.x += x - panX;
-			pan.y += y - panY;
-			panX = x;
-			panY = y;
-			return;
-		}
-		// o tremor do clique é medido na tela, o arraste do nó na rede
-		Point p = toWorld(x, y);
-		if(actionState == ActionLayer)
-		{
-			updateLayer(x, y);
-		}
-		else if (bDown)
-		{
-			this->x += p.x - downX;
-			this->y += p.y - downY;
-			downX = p.x;
-			downY = p.y;
-			if(bMoving && !dragging && (abs(x - pressX) > 3 || abs(y - pressY) > 3))
-			{
-				dragging = true;
-				actionState = ActionNone;
-			}
-			if(dragging)
-			{
-				Point p = snapPosition(nodeMoving, this->x, this->y);
-				if(p.x != nodeMoving->getPosition().x || p.y != nodeMoving->getPosition().y)
-				{
-					nodeMoving->setPosition(p);
-					modified = true;
-				}
-			}
-		}
-		else if(actionState == ActionConnect)
-		{
-			updateAddEdge(p.x, p.y);
-		}
-	}
 	/**
 	 * Desenha a área de edição nos limites informados
 	 */
 	void paint(Rectangle bounds);
 
 	/**
-	 * Indica se o botão do mouse foi pressionado na área de edição e ainda
-	 * não foi solto, ou se a vista está sendo arrastada
+	 * Botão esquerdo pressionado: seleciona a parte sob o mouse e, no fundo,
+	 * arrasta a vista. Na execução alterna a entrada ou o alvo da saída. No
+	 * peso ou no bias o segundo clique pede a edição.
 	 */
-	inline bool isMouseDown()
-	{
-		return bDown || panning;
-	}
+	void mouseDown(int x, int y);
+	void mouseUp(int x, int y);
+	void mouseMove(int x, int y);
+
+	/**
+	 * Clique duplo: pede a edição do peso ou do bias e o menu da camada
+	 */
+	void mouseDoubleClick(int x, int y);
+
+	/**
+	 * Botão direito: seleciona e pede o menu da camada
+	 */
+	void mouseRightDown(int x, int y);
+
+	/**
+	 * Delete exclui a entrada, o neurônio ou a camada selecionada, Esc tira a
+	 * seleção
+	 */
+	void keyDown(int key);
+
+	/**
+	 * Indica se a vista está sendo arrastada
+	 */
+	bool isMouseDown();
 
 	/**
 	 * Zoom da roda do mouse, o ponto da rede sob o mouse fica parado
@@ -362,14 +241,14 @@ public:
 
 	/**
 	 * Centraliza a rede na área, com o zoom que a mostra inteira, sem passar
-	 * de 100%. A área é a dos centros dos nós, na área de edição.
+	 * de 100%
 	 */
 	void fitView(Rectangle area);
 
 	/**
-	 * Indica se os centros dos nós estão dentro da área com a vista atual
+	 * Indica se alguma parte da rede aparece na área com a vista atual
 	 */
-	bool fitsIn(Rectangle area);
+	bool isVisible(Rectangle area);
 
 	/**
 	 * Zoom e deslocamento da vista, para voltar a ela ao abrir a rede de novo
@@ -377,41 +256,52 @@ public:
 	float getZoom();
 	Vector2 getPan();
 	void setView(float zoom, Vector2 pan);
-public:
-	NeuralNetwork();
-	~NeuralNetwork();
 
 	/**
-	 * Adiciona o nó na camada do tipo e o liga às camadas vizinhas; o neurônio
-	 * vai na camada do neurônio selecionado. A área, na área de edição, é onde
-	 * fica o primeiro nó da rede vazia.
+	 * Uma entrada a mais; as entradas deixam de ser uma imagem
 	 */
-	void addNeuron(Rectangle area);
-	void addInput(Rectangle area);
-	void addOutput(Rectangle area);
+	void addInput();
 
 	/**
-	 * Exclui o nó e as conexões dele
+	 * Um neurônio a mais na camada selecionada ou, sem ela, na última oculta;
+	 * sem oculta cria uma
 	 */
-	void removeNode(Node *node);
-	void removeEdge(Edge *edge);
-	void setFunction(NeuronNode *neuron, int function);
+	void addNeuron();
 
 	/**
-	 * Desloca a rede para a direita até nenhum nó ficar antes de left, a
-	 * posição não conta como alteração
+	 * Camada oculta nova de 2 neurônios depois da selecionada ou antes da
+	 * saída; sem camadas cria a de saída
 	 */
-	void keepRightOf(int left);
+	void addLayer();
 
 	/**
-	 * Reorganiza a rede em camadas: as entradas na primeira, cada neurônio
-	 * depois dos nós que o alimentam e as saídas na última, centralizadas na
-	 * área informada para os centros dos nós e alinhadas à grade. Sem espaço
-	 * para a distância mínima entre os nós a rede passa da área, e fitView a
-	 * mostra inteira. Retorna o número de camadas.
+	 * Um neurônio a mais na camada de saída, criada se não houver
 	 */
-	int arrange(Rectangle area);
-	void setInputBias(InputNode *input, bool bias);
+	void addOutput();
+
+	/**
+	 * Exclui a entrada, o neurônio ou a camada selecionada
+	 */
+	void removeSelected();
+	void removeLayer(int layer);
+	void setFunction(int layer, int function);
+
+	/**
+	 * Troca as entradas por uma imagem side x side, 0 volta a entradas soltas
+	 * na mesma quantidade
+	 */
+	void setImageSide(int side);
+
+	/**
+	 * Valor do peso ou do bias selecionado, editado no lugar
+	 */
+	float getSelectedValue();
+
+	/**
+	 * Muda o peso ou o bias selecionado, retorna true se mudou
+	 */
+	bool setSelectedValue(float value);
+
 	/**
 	 * Grava a rede e, ao lado, as amostras do treino (rede.amostras.txt); sem
 	 * amostras apaga o arquivo delas. O caminho é UTF-8.
@@ -432,17 +322,26 @@ public:
 	void loadFromFile(const std::string& fileName);
 
 	/**
-	 * Informa que um nó ou conexão foi alterado fora da rede (edição no lugar)
+	 * Lê as imagens que o treino passa a usar no lugar das amostras: os
+	 * arquivos IDX do MNIST, com o teste ao lado, ou uma pasta de imagens com
+	 * o dígito no começo do nome. Retorna quantas leu; lança exceção se
+	 * falhar.
 	 */
-	void notifyDataChanged();
+	int loadData(const std::string& path);
+
+	/**
+	 * Nome dos dados de fora, vazio sem eles
+	 */
+	const std::string& getDataName();
+	int getDataCount();
+	int getTestCount();
 
 	/**
 	 * Indica se há alterações desde a última leitura ou gravação
 	 */
 	bool isModified();
-	Edge* getSelectedEdge();
-	Node* getSelectedNode();
-	NeuronNode* getSelectedBias();
+	Part getSelected();
+	const Network& getNetwork();
 
 	/**
 	 * Retorna o pedido feito pelos eventos de mouse e o descarta
@@ -456,15 +355,27 @@ public:
 	bool isRunning();
 
 	/**
-	 * Treina com os valores atuais das entradas e os alvos das saídas, que
-	 * entram nas amostras; com withScreen false, só com as amostras guardadas
+	 * Começa o treino numa thread, com os dados de fora ou com as amostras
+	 * guardadas mais a combinação da tela (withScreen). O resultado vem de
+	 * takeResult.
 	 */
-	Training::Result train(bool withScreen = true);
+	void train(bool withScreen = true);
+	bool isTraining();
+	void stopTraining();
 
 	/**
-	 * Sorteia de novo, entre -1 e 1, os bias e os pesos que o treino ajusta;
-	 * a conexão que é a única de uma saída repassa o valor do nó e fica como
-	 * está
+	 * Andamento do treino, retorna false antes do primeiro aviso
+	 */
+	bool getProgress(Trainer::Progress& progress);
+
+	/**
+	 * Se o treino terminou, põe a rede treinada no lugar, marca os pesos e os
+	 * bias alterados e retorna true com o resultado
+	 */
+	bool takeResult(Trainer::Result& result);
+
+	/**
+	 * Sorteia de novo os pesos e os bias
 	 */
 	void randomizeWeights();
 
@@ -474,42 +385,25 @@ public:
 	int getSampleCount();
 
 	/**
-	 * Esquece as amostras, o próximo treino usa só a combinação da tela
+	 * Esquece as amostras e os dados de fora, o próximo treino usa só a
+	 * combinação da tela
 	 */
 	void forgetSamples();
-
-	/**
-	 * Indica se uma camada nova está sendo arrastada com Shift
-	 */
-	bool isDrawingLayer();
 	bool isEmpty();
-
-	/**
-	 * Indica se um nó está sendo arrastado
-	 */
-	bool isMoving();
-
-	/**
-	 * Indica se aguarda o clique no nó de destino de uma conexão
-	 */
-	bool isConnecting();
-	bool hasCycle();
 	double getError();
 	bool isOnTarget();
 
 	/**
-	 * Lado do quadrado de pixels que as entradas de dado formam, 8 com 64
-	 * entradas, ou 0 se a quantidade não é um quadrado de pelo menos 2 x 2
+	 * Lado do quadrado de pixels das entradas, 0 se elas não são uma imagem
 	 */
 	int getImageSide();
 
 	/**
-	 * Entra na execução com os pixels da imagem nas entradas de dado, na ordem
-	 * de leitura delas. O alvo da saída do rótulo (a primeira de cima é a 0)
-	 * fica em 1 e os das outras em 0; sem rótulo, ou com um além das saídas,
-	 * todos ficam em 0. Retorna true se o rótulo marcou um alvo.
+	 * Entra na execução com os pixels da imagem nas entradas. O alvo da saída
+	 * do rótulo fica em 1 e os das outras em 0; sem rótulo, ou com um além das
+	 * saídas, todos ficam em 0. Retorna true se o rótulo marcou um alvo.
 	 */
-	bool showImage(const std::vector<double>& values, int label);
+	bool showImage(const std::vector<float>& values, int label);
 
 	/**
 	 * Indica se as entradas têm a imagem: a execução não foi parada e nenhuma
@@ -518,15 +412,10 @@ public:
 	bool isShowingImage();
 
 	/**
-	 * Saída de maior valor, contando de 0 na ordem de leitura, ou -1 sem
-	 * saídas ou com valores inválidos
+	 * Saída de maior valor, contando de 0, ou -1 sem saídas ou com valores
+	 * inválidos
 	 */
 	int getRecognized();
-
-	/**
-	 * Valor da saída, contando de 0 na ordem de leitura
-	 */
-	double getOutputValue(int output);
 
 	/**
 	 * Saída com o único alvo diferente de 0, ou -1

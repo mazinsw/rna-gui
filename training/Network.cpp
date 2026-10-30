@@ -309,6 +309,42 @@ void Network::resize(int index, int size, std::mt19937& random)
 		resizeInputs(index + 1, size, random);
 }
 
+void Network::removeInput(int index)
+{
+	inputs--;
+	side = 0;
+	if(layers.empty())
+		return;
+	Layer& layer = layers[0];
+	layer.weights.erase(layer.weights.begin() + (size_t)index * layer.size,
+		layer.weights.begin() + (size_t)(index + 1) * layer.size);
+}
+
+void Network::removeNeuron(int index, int neuron, std::mt19937& random)
+{
+	Layer& layer = layers[index];
+	if(layer.size == 1)
+		return removeLayer(index, random);
+	int k = inputCount(index);
+	std::vector<float> weights;
+	for(int i = 0; i < k; i++)
+	{
+		for(int j = 0; j < layer.size; j++)
+		{
+			if(j != neuron)
+				weights.push_back(layer.weights[(size_t)i * layer.size + j]);
+		}
+	}
+	layer.weights = weights;
+	layer.bias.erase(layer.bias.begin() + neuron);
+	layer.size--;
+	if(index + 1 == (int)layers.size())
+		return;
+	Layer& next = layers[index + 1];
+	next.weights.erase(next.weights.begin() + (size_t)neuron * next.size,
+		next.weights.begin() + (size_t)(neuron + 1) * next.size);
+}
+
 void Network::setInputs(int count, int side, std::mt19937& random)
 {
 	inputs = count;
@@ -535,8 +571,9 @@ static Network readGraph(std::ifstream& file, bool hasBias)
 		if(nodes[edge.target].type != GRAPH_OUTPUT)
 			continue;
 		if(source.layer != layerCount)
-			throw std::runtime_error("Not a layered network: an output is fed by a neuron "
-				"outside the last layer.");
+			throw std::runtime_error("Not a layered network: output " +
+				std::to_string(edge.target + 1) + " is fed by node " + std::to_string(edge.source + 1) +
+				", outside the last layer.");
 		direct = direct && edge.weight == 1 && fed[edge.source] == 0;
 		fed[edge.source]++;
 		fed[edge.target]++;
@@ -559,15 +596,18 @@ static Network readGraph(std::ifstream& file, bool hasBias)
 		else if(source.type == GRAPH_INPUT)
 		{
 			if(target.layer != 1)
-				throw std::runtime_error("Not a layered network: an input feeds a neuron outside "
-					"the first layer.");
+				throw std::runtime_error("Not a layered network: input " +
+					std::to_string(edge.source + 1) + " feeds node " + std::to_string(edge.target + 1) +
+					", outside the first layer.");
 			Network::Layer& layer = network.layers[0];
 			layer.weights[(size_t)source.index * layer.size + target.index] = (float)edge.weight;
 		}
 		else if(target.type == GRAPH_NEURON)
 		{
 			if(target.layer != source.layer + 1)
-				throw std::runtime_error("Not a layered network: a connection skips a layer.");
+				throw std::runtime_error("Not a layered network: the connection from node " +
+					std::to_string(edge.source + 1) + " to node " + std::to_string(edge.target + 1) +
+					" skips a layer.");
 			Network::Layer& layer = network.layers[target.layer - 1];
 			layer.weights[(size_t)source.index * layer.size + target.index] = (float)edge.weight;
 		}

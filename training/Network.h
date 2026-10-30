@@ -124,6 +124,18 @@ public:
 	void resize(int index, int size, std::mt19937& random);
 
 	/**
+	 * Remove a entrada e os pesos dela na primeira camada; as entradas deixam
+	 * de ser uma imagem
+	 */
+	void removeInput(int index);
+
+	/**
+	 * Remove o neurônio da camada, com os pesos que chegam e saem dele; a
+	 * camada sem neurônios sai da rede
+	 */
+	void removeNeuron(int layer, int index, std::mt19937& random);
+
+	/**
 	 * Muda as entradas da rede e as da primeira camada
 	 */
 	void setInputs(int count, int side, std::mt19937& random);

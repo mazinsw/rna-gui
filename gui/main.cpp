@@ -5,8 +5,10 @@
 #include <stdexcept>
 #include "ClayRaylib.h"
 #include "ContextMenu.h"
+#include "Draw.h"
 #include "InlineEditor.h"
 #include "Input.h"
+#include "Number.h"
 #include "Pixels.h"
 #include "Platform.h"
 #include "Resources.h"
@@ -15,19 +17,17 @@
 #include "Widgets.h"
 #include "NeuralNetwork.h"
 
-// tecla que solta o nó do alinhamento ao mover e a dos atalhos
+// tecla dos atalhos
 #if defined(__APPLE__)
-#define FREE_MOVE_KEY "Option"
 #define COMMAND_KEY "Cmd"
 #else
-#define FREE_MOVE_KEY "Alt"
 #define COMMAND_KEY "Ctrl"
 #endif
 
 class RedesNeuraisFrame
 {
 private:
-	// nós antes desta posição ficariam embaixo do painel de botões
+	// a rede fica à direita do painel de botões
 	static const int PanelRight = 200;
 	NeuralNetwork* neuralNetwork;
 	CustomDraw neuralNetworkDraw;
@@ -51,6 +51,10 @@ private:
 	std::string resultText;
 	Vector2 mouse;
 	float renderScale;
+	// a vista é ajustada à rede quando a área de edição tiver tamanho, a
+	// restaurada só se não mostrar a rede
+	bool fitPending;
+	bool viewRestored;
 private:
 	static void paintNeuralNetwork(void* context, Rectangle bounds)
 	{
@@ -67,8 +71,8 @@ private:
 			float left = bounds.x + bounds.width * i / steps;
 			float right = bounds.x + bounds.width * (i + 1) / steps;
 			DrawRectangleGradientH((int)left, (int)bounds.y, (int)ceilf(right - left),
-				(int)bounds.height, Edge::influenceColor((float)i / steps),
-				Edge::influenceColor((float)(i + 1) / steps));
+				(int)bounds.height, draw::influenceColor((float)i / steps),
+				draw::influenceColor((float)(i + 1) / steps));
 		}
 	}
 	/**
@@ -100,50 +104,91 @@ private:
 	{
 		return std::to_string(count) + (count == 1 ? " amostra" : " amostras");
 	}
+	static std::string percent(double fraction)
+	{
+		return number::format(fraction * 100, 1) + "%";
+	}
 	void treinar()
 	{
-		Training::Result result = neuralNetwork->train();
-		std::string errors = "erro de " + Node::formatNumber(result.errorBefore, 2) + " para " +
-			Node::formatNumber(result.errorAfter, 2) + ".";
-		std::string iterations = std::to_string(result.iterations) +
-			(result.iterations == 1 ? " iteração" : " iterações");
+		editor.cancel();
+		menu.close();
+		if(neuralNetwork->isTraining())
+		{
+			neuralNetwork->stopTraining();
+			return;
+		}
+		message.clear();
+		neuralNetwork->train();
+	}
+	/**
+	 * Mostra o resultado do treino que terminou
+	 */
+	void updateTraining()
+	{
+		Trainer::Result result;
+		if(!neuralNetwork->takeResult(result))
+			return;
+		std::string errors = "erro de " + number::format(result.errorBefore, 2) + " para " +
+			number::format(result.errorAfter, 2) + ".";
+		std::string steps = std::to_string(result.steps) + (result.epochs ?
+			(result.steps == 1 ? " época" : " épocas") :
+			(result.steps == 1 ? " iteração" : " iterações"));
 		std::string samples = " com " + samplesText(result.samples);
+		std::string accuracy;
+		if(result.testAccuracy >= 0)
+			accuracy = ": acerto de " + percent(result.testAccuracy) + " no teste.";
+		else if(result.accuracy >= 0)
+			accuracy = ": acerto de " + percent(result.accuracy) + " no treino.";
+		else
+			accuracy = ".";
 		switch(result.status)
 		{
-		case Training::Trained:
-			message = "Treinado" + samples + " em " + iterations + ": " + errors;
+		case Trainer::Trained:
+			message = "Treinado" + samples + " em " + steps + ": " + errors;
 			break;
-		case Training::OnTarget:
+		case Trainer::OnTarget:
 			message = result.samples == 1 ?
 				"As saídas já estão iguais aos alvos, os pesos foram mantidos." :
 				"As saídas já estão iguais aos alvos nas " + samplesText(result.samples) +
 				", os pesos foram mantidos.";
 			break;
-		case Training::NotConverged:
-			message = "Não convergiu em " + iterations + samples + ": " + errors;
+		case Trainer::NotConverged:
+			message = "Não convergiu em " + steps + samples + ": " + errors;
 			break;
-		case Training::Stalled:
-			message = "O erro parou de cair em " + iterations + samples + ": " + errors +
-				" Troque a função dos neurônios ou sorteie os pesos.";
+		case Trainer::Stalled:
+			message = "O erro parou de cair em " + steps + samples + ": " + errors +
+				" Troque a função das camadas ou sorteie os pesos.";
 			break;
-		case Training::Invalid:
-			message = "A rede tem valores inválidos (nan ou inf) e não pode ser treinada. "
-				"Sorteie os pesos para recomeçar.";
+		case Trainer::Finished:
+			message = "Treinado por " + steps + samples + accuracy;
 			break;
-		case Training::HasCycle:
-			message = "A rede tem um ciclo e não pode ser treinada.";
+		case Trainer::Stopped:
+			message = result.epochs ? "Treino parado depois de " + steps + accuracy :
+				"Treino parado em " + steps + ", a rede ficou com os melhores pesos: " + errors;
 			break;
-		case Training::NoOutput:
+		case Trainer::Invalid:
+			message = "A rede tem valores inválidos (nan ou inf) ou o treino divergiu. Sorteie os "
+				"pesos para recomeçar.";
+			break;
+		case Trainer::NoOutput:
 			message = "Adicione uma saída para treinar a rede.";
 			break;
-		case Training::NoTarget:
+		case Trainer::NoSamples:
 			message = "As saídas da softmax somam 1: clique no alvo da saída certa para treinar.";
 			break;
+		case Trainer::Mismatch:
+		{
+			const Network& network = neuralNetwork->getNetwork();
+			message = "As imagens de " + neuralNetwork->getDataName() + " não servem para esta "
+				"rede: ela precisa de " + std::to_string(network.inputs) + " entradas e " +
+				std::to_string(network.outputs()) + " saídas.";
+			break;
+		}
 		}
 	}
 	/**
-	 * Onde ficam os centros dos nós na área de edição: à direita do painel, com
-	 * espaço para o bias acima, os valores abaixo e o status
+	 * Onde fica a rede na área de edição: à direita do painel, com espaço para
+	 * os rótulos e o status
 	 */
 	Rectangle editArea()
 	{
@@ -152,35 +197,28 @@ private:
 			return Rectangle{ 0, 0, 0, 0 };
 		float scale = ClayRaylib_GetScale();
 		float left = panelRight();
-		return Rectangle{ left + 40, 70, canvas.boundingBox.width * scale - left - 100,
-			canvas.boundingBox.height * scale - 180 };
+		return Rectangle{ left + 40, 110, canvas.boundingBox.width * scale - left - 100,
+			canvas.boundingBox.height * scale - 220 };
 	}
 	void sortearPesos()
 	{
 		editor.cancel();
 		menu.close();
 		neuralNetwork->randomizeWeights();
-		message = "Pesos e bias sorteados entre -1 e 1.";
+		message = "Pesos e bias sorteados, menores nas camadas com mais ligações.";
 	}
 	void zerarAmostras()
 	{
+		bool data = !neuralNetwork->getDataName().empty();
 		neuralNetwork->forgetSamples();
-		message = "Amostras apagadas, Treinar volta a usar só a combinação da tela.";
+		message = data ? "Amostras e imagens esquecidas, Treinar volta a usar só a combinação "
+			"da tela." : "Amostras apagadas, Treinar volta a usar só a combinação da tela.";
 	}
-	void reorganizar()
+	void ajustar()
 	{
-		editor.cancel();
-		menu.close();
 		Rectangle area = editArea();
-		if(area.width <= 0)
-			return;
-		int layers = neuralNetwork->arrange(area);
-		neuralNetwork->fitView(area);
-		if(layers == 0)
-			message = "Adicione nós para reorganizar a rede.";
-		else
-			message = "Rede reorganizada em " + std::to_string(layers) +
-				(layers == 1 ? " camada." : " camadas.");
+		if(area.width > 0)
+			neuralNetwork->fitView(area);
 	}
 	void salvar()
 	{
@@ -215,18 +253,14 @@ private:
 	}
 	void openFile(const std::string& path)
 	{
-		// o editor e o menu apontam para nós da rede que será substituída
 		editor.cancel();
 		menu.close();
 		try
 		{
 			neuralNetwork->loadFromFile(path);
-			neuralNetwork->keepRightOf(panelRight());
-			// a rede que não cabe em 100% aparece inteira
-			Rectangle area = editArea();
-			if(area.width > 0 && !neuralNetwork->fitsIn(area))
-				neuralNetwork->fitView(area);
 			fileName = path;
+			message.clear();
+			ajustar();
 			loadSamples(path);
 		}
 		catch (const std::exception& e)
@@ -257,8 +291,8 @@ private:
 		int side = neuralNetwork->getImageSide();
 		if(side == 0)
 		{
-			message = "Para receber a imagem " + name + " as entradas de dado precisam formar "
-				"um quadrado de pixels, como 64 para 8 x 8. Abra exemplos/digitos.bin.";
+			message = "Para receber a imagem " + name + " as entradas precisam ser uma imagem: "
+				"clique direito nas entradas ou abra exemplos/digitos.bin.";
 			return;
 		}
 		std::vector<double> values;
@@ -273,12 +307,33 @@ private:
 		}
 		int label = pixels::labelOf(path);
 		std::string size = std::to_string(side) + " x " + std::to_string(side);
-		if(neuralNetwork->showImage(values, label))
+		if(neuralNetwork->showImage(std::vector<float>(values.begin(), values.end()), label))
 			message = name + " reduzida a " + size + " nas entradas, alvo " +
 				std::to_string(label) + ". Treinar a ensina.";
 		else
 			message = name + " reduzida a " + size + " nas entradas. Para ensinar, clique no "
 				"alvo da saída certa e em Treinar.";
+	}
+	/**
+	 * Lê as imagens soltas na janela para o treino: os arquivos do MNIST ou
+	 * uma pasta de imagens
+	 */
+	void openData(const std::string& path)
+	{
+		editor.cancel();
+		menu.close();
+		try
+		{
+			int count = neuralNetwork->loadData(path);
+			int tests = neuralNetwork->getTestCount();
+			message = "Treinar usa as " + std::to_string(count) + " imagens de " +
+				neuralNetwork->getDataName() + (tests > 0 ? ", com " + std::to_string(tests) +
+				" de teste." : ".");
+		}
+		catch (const std::exception& e)
+		{
+			messageDialog.show("Erro", std::string("Falha na leitura das imagens\n") + e.what());
+		}
 	}
 	bool isDialogVisible()
 	{
@@ -294,8 +349,12 @@ private:
 		// com um diálogo aberto o arquivo é ignorado
 		if(path.empty() || isDialogVisible())
 			return;
+		std::error_code error;
+		std::filesystem::path file = pathFromUtf8(path);
 		if(pixels::isImage(path))
 			openImage(path);
+		else if(Dataset::isIdx(file) || std::filesystem::is_directory(file, error))
+			openData(path);
 		else
 			requestOpen(path);
 	}
@@ -306,23 +365,14 @@ private:
 	{
 		NeuralNetwork::Request request = neuralNetwork->takeRequest();
 		Vector2 origin = canvasOrigin();
-		if(request.kind == NeuralNetwork::Request::EditWeight)
-			editor.show(request.edge);
-		else if(request.kind == NeuralNetwork::Request::EditBias)
-			editor.show((NeuronNode*)request.node);
-		else if(request.kind == NeuralNetwork::Request::Menu && request.node != NULL)
-		{
-			// à direita do nó
-			const Point& p = request.node->getPosition();
-			Vector2 corner = neuralNetwork->toScreen(Vector2{ p.x + 36.0f, p.y - 28.0f });
-			menu.show(neuralNetwork, request.node, NULL,
-				ClayRaylib_ToLayout(Vector2{ origin.x + corner.x, origin.y + corner.y }));
-		}
+		if(request.kind == NeuralNetwork::Request::Edit)
+			editor.show(request.box, neuralNetwork->getSelectedValue());
 		else if(request.kind == NeuralNetwork::Request::Menu)
 		{
-			Rectangle box = neuralNetwork->toScreen(request.edge->getLabelBox());
-			menu.show(neuralNetwork, NULL, request.edge,
-				ClayRaylib_ToLayout(Vector2{ origin.x + box.x + box.width + 6, origin.y + box.y }));
+			// à direita do clique
+			Vector2 corner = neuralNetwork->toScreen(Vector2{ request.box.x, request.box.y });
+			menu.show(neuralNetwork, request.layer, ClayRaylib_ToLayout(Vector2{
+				origin.x + corner.x + 8, origin.y + corner.y - 8 }));
 		}
 	}
 	/**
@@ -333,6 +383,15 @@ private:
 	{
 		Vector2 last = mouse;
 		mouse = GetMousePosition();
+		// a vista gravada pode ser de outra disposição da rede
+		Rectangle area = editArea();
+		if(fitPending && area.width > 0)
+		{
+			if(!viewRestored || !neuralNetwork->isVisible(area))
+				ajustar();
+			fitPending = false;
+		}
+		updateTraining();
 		// antes dos diálogos e do menu, que tomam os eventos do quadro
 		if(IsMouseButtonReleased(MOUSE_BUTTON_MIDDLE))
 			neuralNetwork->endPan();
@@ -347,14 +406,15 @@ private:
 		{
 			// clique fora aplica o valor e segue para a área de edição, as teclas
 			// ficam com o campo
+			float value;
 			if(!pressed || Clay_PointerOver(CLAY_ID("Editor")))
 			{
-				if(editor.update())
-					neuralNetwork->notifyDataChanged();
+				if(editor.update(value))
+					neuralNetwork->setSelectedValue(value);
 				return;
 			}
-			if(editor.commit())
-				neuralNetwork->notifyDataChanged();
+			if(editor.commit(value))
+				neuralNetwork->setSelectedValue(value);
 		}
 		if(menu.isVisible())
 		{
@@ -363,8 +423,7 @@ private:
 				menu.close();
 			return;
 		}
-		const int keys[] = { KEY_ESCAPE, KEY_DELETE, KEY_BACKSPACE, KEY_UP, KEY_DOWN, KEY_LEFT,
-			KEY_RIGHT };
+		const int keys[] = { KEY_ESCAPE, KEY_DELETE, KEY_BACKSPACE };
 		for(int key : keys)
 		{
 			if(IsKeyPressed(key) || IsKeyPressedRepeat(key))
@@ -379,10 +438,7 @@ private:
 		// os painéis flutuantes capturam o mouse, então fora deles
 		bool over = Clay_PointerOver(id);
 		bool moved = mouse.x != last.x || mouse.y != last.y;
-		// Alt muda o alinhamento do nó arrastado sem o mouse se mover
-		bool alt = IsKeyPressed(KEY_LEFT_ALT) || IsKeyReleased(KEY_LEFT_ALT) ||
-			IsKeyPressed(KEY_RIGHT_ALT) || IsKeyReleased(KEY_RIGHT_ALT);
-		if((moved || alt) && (over || neuralNetwork->isMouseDown()))
+		if(moved && (over || neuralNetwork->isMouseDown()))
 			neuralNetwork->mouseMove(x, y);
 		if(pressed && over)
 			message.clear();
@@ -451,49 +507,70 @@ private:
 		return true;
 	}
 	/**
+	 * Andamento do treino em andamento
+	 */
+	std::string progressText()
+	{
+		Trainer::Progress progress;
+		if(!neuralNetwork->getProgress(progress))
+			return "Treinando...";
+		std::string text = "Treinando: ";
+		if(progress.epochs)
+		{
+			text += "época " + std::to_string(progress.step) + " de " +
+				std::to_string(progress.steps);
+			if(progress.done < 1)
+				text += " (" + std::to_string((int)(progress.done * 100)) + "%)";
+			if(progress.accuracy >= 0)
+				text += ", acerto de " + percent(progress.accuracy) + " no treino";
+			if(progress.testAccuracy >= 0)
+				text += " e " + percent(progress.testAccuracy) + " no teste";
+		}
+		else
+			text += "iteração " + std::to_string(progress.step) + ", erro de " +
+				number::format(progress.error, 2);
+		return text + ". Parar interrompe o treino.";
+	}
+	/**
 	 * Texto da barra de status: o resultado da última ação ou uma dica para o
 	 * que está selecionado
 	 */
 	void updateStatus()
 	{
 		bool running = neuralNetwork->isRunning();
+		NeuralNetwork::Part selected = neuralNetwork->getSelected();
 		errorText.clear();
 		resultText.clear();
-		if(running && !neuralNetwork->hasCycle())
-			errorText = "Erro " + Node::formatNumber(neuralNetwork->getError(), 2);
+		if(running && !neuralNetwork->getNetwork().layers.empty())
+			errorText = "Erro " + number::format(neuralNetwork->getError(), 2);
 		int recognized = neuralNetwork->isShowingImage() ? neuralNetwork->getRecognized() : -1;
 		if(running && recognized >= 0)
 			resultText = "Reconhecido " + std::to_string(recognized);
-		if(!message.empty())
+		if(neuralNetwork->isTraining())
+			status = progressText();
+		else if(!message.empty())
 			status = message;
 		else if(editor.isVisible())
 			status = "Digite o valor: Enter ou clique fora aplica, Esc cancela.";
 		else if(menu.isVisible())
 			status = "Escolha uma opção do menu. Esc fecha.";
-		else if(running && neuralNetwork->hasCycle())
-			status = "A rede tem um ciclo e não pode ser executada.";
-		else if(neuralNetwork->isMoving())
-			status = "Solte para posicionar. Segure " FREE_MOVE_KEY " para mover sem alinhar.";
-		else if(neuralNetwork->isDrawingLayer())
-			status = "Arraste para cima ou para baixo para mudar a quantidade. Solte para "
-				"adicionar, Esc cancela.";
-		else if(neuralNetwork->isConnecting())
-			status = "Clique em outro nó para conectar. Esc cancela, Delete exclui o nó.";
-		else if(neuralNetwork->getSelectedEdge() != NULL)
-			status = running ? "Clique de novo no peso para editar." :
-				"Clique de novo no peso para editar. Delete exclui a conexão.";
-		else if(neuralNetwork->getSelectedBias() != NULL)
+		else if(selected.kind == NeuralNetwork::Part::Weight)
+			status = "Clique de novo no peso para editar.";
+		else if(selected.kind == NeuralNetwork::Part::Bias)
 			status = "Clique de novo no bias para editar.";
+		else if(!neuralNetwork->getDataName().empty())
+			status = "Treinar usa as " + std::to_string(neuralNetwork->getDataCount()) +
+				" imagens de " + neuralNetwork->getDataName() + ". Zerar amostras volta às da tela.";
 		else if(running && neuralNetwork->isShowingImage())
 			status = "Arraste outra imagem para reconhecer. Clique no alvo da saída certa e em "
 				"Treinar para ensinar esta.";
 		else if(running && neuralNetwork->getImageSide() > 0)
-			status = "Arraste a imagem de um dígito para a janela, ou clique nas entradas e nas "
-				"saídas para alternar entre 0 e 1.";
+			status = "Arraste a imagem de um dígito para a janela, ou a pasta do MNIST para "
+				"treinar com ela.";
 		else if(running)
 		{
 			int count = neuralNetwork->getSampleCount();
-			status = "Clique nas entradas e nas saídas para alternar entre 0 e 1.";
+			status = "Clique nas entradas e nos alvos das saídas para alternar entre 0 e 1.";
 			if(count == 0)
 				status += " Cada combinação treinada fica guardada.";
 			else if(count == 1)
@@ -502,10 +579,18 @@ private:
 				status += " Treinar usa também as " + samplesText(count) + " guardadas.";
 		}
 		else if(neuralNetwork->isEmpty())
-			status = "Segure Shift e arraste para baixo no fundo para criar as entradas.";
+			status = "Adicione as entradas e uma saída para começar a rede.";
+		else if(selected.kind == NeuralNetwork::Part::Input)
+			status = "Delete exclui a entrada. Clique direito nas entradas para formar uma imagem.";
+		else if(selected.kind == NeuralNetwork::Part::Neuron)
+			status = "Neurônio adiciona outro nesta camada. Clique direito troca a função da "
+				"camada, Delete exclui o neurônio.";
+		else if(selected.kind == NeuralNetwork::Part::Layer && selected.layer >= 0)
+			status = "Neurônio adiciona nesta camada e Camada, depois dela. Clique direito troca a "
+				"função, Delete exclui a camada.";
 		else
-			status = "Shift + arrastar no fundo cria uma camada. Clique direito no neurônio para "
-				"trocar a função, clique no peso ou no bias para editar.";
+			status = "Clique numa camada para adicionar nela, no peso ou no bias para editar. "
+				"Clique direito troca a função da camada.";
 	}
 	/**
 	 * Painel flutuante com os botões empilhados
@@ -513,6 +598,9 @@ private:
 	void toolbar()
 	{
 		bool running = neuralNetwork->isRunning();
+		bool training = neuralNetwork->isTraining();
+		// a estrutura fica fixa durante a execução e o treino
+		bool editing = !running && !training;
 		CLAY({ .id = CLAY_ID("Toolbar"),
 			.layout = { .sizing = { CLAY_SIZING_FIXED(164), CLAY_SIZING_FIT(0) },
 				.padding = CLAY_PADDING_ALL(8), .childGap = 2,
@@ -522,34 +610,39 @@ private:
 			.floating = { .offset = { 12, 12 }, .zIndex = 2, .attachTo = CLAY_ATTACH_TO_PARENT },
 			.border = { .color = ui::PanelBorderColor, .width = CLAY_BORDER_OUTSIDE(1) } })
 		{
-			// a topologia fica fixa durante a execução
 			ui::groupTitle(CLAY_STRING("ADICIONAR"));
+			if(ui::toolButton(CLAY_ID("AddEntrada"), icons::Input, CLAY_STRING("Entrada"), editing))
+				neuralNetwork->addInput();
 			if(ui::toolButton(CLAY_ID("AddNeuronio"), icons::Neuron, CLAY_STRING("Neurônio"),
-				!running))
-				neuralNetwork->addNeuron(editArea());
-			if(ui::toolButton(CLAY_ID("AddEntrada"), icons::Input, CLAY_STRING("Entrada"),
-				!running))
-				neuralNetwork->addInput(editArea());
-			if(ui::toolButton(CLAY_ID("AddSaida"), icons::Output, CLAY_STRING("Saída"), !running))
-				neuralNetwork->addOutput(editArea());
+				editing))
+				neuralNetwork->addNeuron();
+			if(ui::toolButton(CLAY_ID("AddCamada"), icons::Arrange, CLAY_STRING("Camada"), editing))
+				neuralNetwork->addLayer();
+			if(ui::toolButton(CLAY_ID("AddSaida"), icons::Output, CLAY_STRING("Saída"), editing))
+				neuralNetwork->addOutput();
 			ui::separator(6);
 			if(ui::toolButton(CLAY_ID("Executar"), running ? icons::Stop : icons::Play,
-				running ? CLAY_STRING("Parar") : CLAY_STRING("Executar"), true,
+				running ? CLAY_STRING("Parar") : CLAY_STRING("Executar"), !training,
 				running ? ui::ButtonPrimary : ui::ButtonDefault))
 				executar();
-			if(running && ui::toolButton(CLAY_ID("Treinar"), icons::Train, CLAY_STRING("Treinar"),
-				true, ui::ButtonAccent))
+			bool data = !neuralNetwork->getDataName().empty();
+			if(training && ui::toolButton(CLAY_ID("Treinar"), icons::Stop,
+				CLAY_STRING("Parar treino"), true, ui::ButtonPrimary))
+				treinar();
+			else if(!training && (running || data) && ui::toolButton(CLAY_ID("Treinar"),
+				icons::Train, CLAY_STRING("Treinar"), true, ui::ButtonAccent))
 				treinar();
 			if(ui::toolButton(CLAY_ID("SortearPesos"), icons::Dice, CLAY_STRING("Sortear pesos"),
-				!neuralNetwork->isEmpty()))
+				!training && !neuralNetwork->getNetwork().layers.empty()))
 				sortearPesos();
-			if(running && neuralNetwork->getSampleCount() > 0 &&
-				ui::toolButton(CLAY_ID("ZerarAmostras"), icons::Forget, CLAY_STRING("Zerar amostras")))
+			if((data || (running && neuralNetwork->getSampleCount() > 0)) &&
+				ui::toolButton(CLAY_ID("ZerarAmostras"), icons::Forget, CLAY_STRING("Zerar amostras"),
+				!training))
 				zerarAmostras();
 			ui::separator(6);
-			if(ui::toolButton(CLAY_ID("Reorganizar"), icons::Arrange, CLAY_STRING("Reorganizar")))
-				reorganizar();
-			if(ui::toolButton(CLAY_ID("Salvar"), icons::Save, CLAY_STRING("Salvar")))
+			if(ui::toolButton(CLAY_ID("Ajustar"), icons::Fit, CLAY_STRING("Ajustar à janela")))
+				ajustar();
+			if(ui::toolButton(CLAY_ID("Salvar"), icons::Save, CLAY_STRING("Salvar"), !training))
 				salvar();
 		}
 	}
@@ -684,6 +777,8 @@ public:
 		legendDraw.context = NULL;
 		mouse = GetMousePosition();
 		renderScale = 0;
+		fitPending = true;
+		viewRestored = false;
 		fileName = getDataFilePath();
 		try
 		{
@@ -691,11 +786,13 @@ public:
 			if(std::filesystem::exists(pathFromUtf8(fileName), error))
 			{
 				neuralNetwork->loadFromFile(fileName);
-				neuralNetwork->keepRightOf(panelRight());
 				loadSamples(fileName);
 				// a vista gravada é a desta rede se ela foi a última aberta
 				if(settings.fileName == fileName)
+				{
 					neuralNetwork->setView(settings.zoom, settings.pan);
+					viewRestored = true;
+				}
 			}
 		}
 		catch (const std::exception& e)
@@ -734,9 +831,10 @@ public:
 			// seguinte
 			bool changed = updateDialogs() || scaled;
 			// cliques são tratados durante o layout, então o que mudaram só aparece
-			// no quadro seguinte: desenha mais um sem esperar por evento
+			// no quadro seguinte: desenha mais um sem esperar por evento. Durante o
+			// treino redesenha sempre, para mostrar o andamento
 			if(changed || input::mousePressed() || input::mouseReleased() ||
-				input::mouseRightPressed())
+				input::mouseRightPressed() || neuralNetwork->isTraining() || fitPending)
 				DisableEventWaiting();
 			else
 				EnableEventWaiting();
