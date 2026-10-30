@@ -165,6 +165,25 @@ Dataset pixels::fromFolder(const std::string& folder, int side, int classes)
 	return samples;
 }
 
+Dataset pixels::fromIdx(const std::filesystem::path& path, int side)
+{
+	Dataset images = Dataset::loadIdx(path);
+	int width = (int)lround(sqrt(images.inputs));
+	if(width * width != images.inputs)
+		throw std::runtime_error("The images of " + pathToUtf8(path.filename()) +
+			" are not square.");
+	Dataset samples(side * side, images.outputs);
+	std::vector<float> gray(images.inputs);
+	for(int s = 0; s < images.size(); s++)
+	{
+		images.input(s, gray.data());
+		std::vector<double> values = fromGray(gray, width, width, side);
+		samples.addImage(std::vector<float>(values.begin(), values.end()), std::vector<float>(
+			images.target(s), images.target(s) + images.outputs));
+	}
+	return samples;
+}
+
 bool pixels::isImage(const std::string& fileName)
 {
 	static const char *extensions[] = { ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tga",

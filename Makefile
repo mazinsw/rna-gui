@@ -10,6 +10,8 @@
 #   make check     testes do treino, sem janela; com dados/mnist também o MNIST
 #   make digitos   refaz exemplos/digitos.bin e digitos28.bin e as amostras a
 #                  partir das imagens de exemplos/digitos e digitos28
+#   make mnist     baixa o MNIST para dados/mnist e refaz exemplos/mnist.bin,
+#                  treinado com ele
 #   make clean     remove build/
 #   make distclean remove build/ e o raylib baixado
 #
@@ -112,10 +114,19 @@ CLI_BIN   := $(BUILD)/RedesNeurais$(EXE)
 DIGITOS   := $(BUILD)/digitos$(EXE)
 RNA_BIN   := $(BUILD)/rna$(EXE)
 CHECK_BIN := $(BUILD)/check$(EXE)
-MNIST_DIR := dados/mnist
+
+# MNIST, fora do git: as 60 mil imagens de treino e as 10 mil de teste
+MNIST_DIR   := dados/mnist
+MNIST_URL   := https://ossci-datasets.s3.amazonaws.com/mnist
+MNIST_FILES := $(addprefix $(MNIST_DIR)/,train-images-idx3-ubyte train-labels-idx1-ubyte \
+               t10k-images-idx3-ubyte t10k-labels-idx1-ubyte)
+SHA256_train-images-idx3-ubyte := 440fcabf73cc546fa21475e81ea370265605f56be210a4024d2ca8f203523609
+SHA256_train-labels-idx1-ubyte := 3552534a0a558bbed6aed32b30c495cca23d567ec52cac8be1a0730e8010255c
+SHA256_t10k-images-idx3-ubyte  := 8d422c7b0a1c1c79245a5bcf07fe86e33eeafee792b84584aec276f5a2dbc4e6
+SHA256_t10k-labels-idx1-ubyte  := f7ae60f92e00ec6debd23a6088c31dbd2371eca3ffa0defaefb259924204aec6
 APP       := $(BUILD)/NeuralNetwork.app
 
-.PHONY: all gui console rna raylib raylib-check app run test check digitos clean distclean
+.PHONY: all gui console rna raylib raylib-check app run test check digitos mnist clean distclean
 
 all: gui console rna
 
@@ -145,6 +156,17 @@ $(DIGITOS): $(DIGITOS_OBJS)
 digitos: $(DIGITOS)
 	./$(DIGITOS) exemplos/digitos exemplos/digitos.bin
 	./$(DIGITOS) exemplos/digitos28 exemplos/digitos28.bin 28 16
+
+# a rede do notebook, 784 -> 256 ReLU -> 10 softmax, treinada por 10 épocas
+mnist: $(MNIST_FILES) $(DIGITOS) $(RNA_BIN)
+	./$(DIGITOS) $(MNIST_DIR) exemplos/mnist.bin 28 256
+	./$(RNA_BIN) treinar exemplos/mnist.bin $(MNIST_DIR)
+
+$(MNIST_DIR)/%:
+	@mkdir -p $(@D)
+	curl -fL -o $@.gz $(MNIST_URL)/$*.gz
+	echo "$(SHA256_$*)  $@.gz" | $(SHA256SUM) -c -
+	gunzip -f $@.gz
 
 # o console não usa o raylib
 $(filter $(OBJDIR)/gui/%,$(GUI_OBJS)) $(OBJDIR)/cli/main.o $(OBJDIR)/tools/digitos.o: | raylib-check

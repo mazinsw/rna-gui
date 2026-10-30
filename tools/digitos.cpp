@@ -7,7 +7,8 @@
  * Grava a rede, lado x lado entradas (8 x 8 pixels sem o lado) -> ocultos
  * neurônios ReLU (10 sem o número) -> 10 saídas softmax, com pesos sorteados,
  * e ao lado as amostras (rede.amostras.txt), uma por imagem, reduzidas por
- * pixels::fromFile como as imagens arrastadas para a interface.
+ * pixels::fromFile como as imagens arrastadas para a interface. Com a pasta
+ * do MNIST grava só a rede, as 60 mil imagens ficam nos arquivos dele.
  */
 #include "../gui/Pixels.h"
 #include "../gui/Platform.h"
@@ -34,7 +35,8 @@ int main(int argc, char *argv[])
 	SetTraceLogLevel(LOG_WARNING);
 	try
 	{
-		Dataset samples = pixels::fromFolder(argv[1], side, Classes);
+		Dataset samples = Dataset::isIdx(pathFromUtf8(argv[1])) ? Dataset() :
+			pixels::fromFolder(argv[1], side, Classes);
 		// sempre os mesmos pesos
 		std::mt19937 random(1);
 		Network network;

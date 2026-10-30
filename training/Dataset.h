@@ -32,6 +32,12 @@ public:
 	void add(const std::vector<float>& input, const std::vector<float>& target);
 
 	/**
+	 * Acrescenta a amostra de uma imagem, com os valores de 0 a 1 guardados
+	 * em bytes, que ocupam um quarto da memória
+	 */
+	void addImage(const std::vector<float>& pixels, const std::vector<float>& target);
+
+	/**
 	 * Guarda a amostra no lugar da que tem as mesmas entradas, ou no fim,
 	 * retorna false se ela já estava guardada
 	 */

@@ -195,7 +195,7 @@ public:
 	/**
 	 * Botão esquerdo pressionado: seleciona a parte sob o mouse e, no fundo,
 	 * arrasta a vista. Na execução alterna a entrada ou o alvo da saída. No
-	 * peso ou no bias o segundo clique pede a edição.
+	 * peso, no bias ou no nome da camada o segundo clique pede a edição.
 	 */
 	void mouseDown(int x, int y);
 	void mouseUp(int x, int y);
@@ -293,12 +293,15 @@ public:
 	void setImageSide(int side);
 
 	/**
-	 * Valor do peso ou do bias selecionado, editado no lugar
+	 * Valor editado no lugar: o peso ou o bias selecionado, a quantidade de
+	 * neurônios da camada selecionada ou, nas entradas, a quantidade delas ou
+	 * o lado da imagem
 	 */
 	float getSelectedValue();
 
 	/**
-	 * Muda o peso ou o bias selecionado, retorna true se mudou
+	 * Muda o valor editado no lugar, retorna true se mudou. Uma quantidade
+	 * fora dos limites não muda nada.
 	 */
 	bool setSelectedValue(float value);
 

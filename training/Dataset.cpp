@@ -72,6 +72,15 @@ void Dataset::add(const std::vector<float>& input, const std::vector<float>& tar
 	targets.insert(targets.end(), target.begin(), target.begin() + outputs);
 }
 
+void Dataset::addImage(const std::vector<float>& pixels, const std::vector<float>& target)
+{
+	if(!values.empty())
+		return add(pixels, target);
+	for(int i = 0; i < inputs; i++)
+		bytes.push_back((unsigned char)lroundf(fminf(fmaxf(pixels[i], 0), 1) * 255));
+	targets.insert(targets.end(), target.begin(), target.begin() + outputs);
+}
+
 bool Dataset::remember(const std::vector<float>& input, const std::vector<float>& target)
 {
 	for(int s = 0; s < size(); s++)

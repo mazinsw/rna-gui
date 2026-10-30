@@ -39,6 +39,13 @@ namespace pixels
 	Dataset fromFolder(const std::string& folder, int side, int classes);
 
 	/**
+	 * Imagens e rótulos do MNIST (formato IDX, veja Dataset::loadIdx) com a
+	 * redução de fromGray, para a rede treinada com elas receber o mesmo que
+	 * das imagens arrastadas. Lança exceção se falhar.
+	 */
+	Dataset fromIdx(const std::filesystem::path& path, int side);
+
+	/**
 	 * Indica se a extensão do arquivo é de imagem
 	 */
 	bool isImage(const std::string& fileName);

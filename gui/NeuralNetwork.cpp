@@ -37,6 +37,10 @@
 // por camada, ligações desenhadas uma a uma e com o rótulo do peso
 #define MAX_LINES 4000
 #define MAX_WEIGHT_LABELS 50
+// limites da quantidade de neurônios ou de entradas e do lado da imagem
+// digitados no lugar
+#define MAX_LAYER_SIZE 4096
+#define MAX_IMAGE_SIDE 64
 // quanto o nome da coluna cresce com o zoom afastado
 #define MAX_CAPTION_SCALE 2.5f
 // rótulo do peso nesta fração do caminho da entrada ao neurônio
@@ -293,7 +297,12 @@ void NeuralNetwork::drawColumn(int c)
 		if(texture.id != 0)
 			DrawTexturePro(texture, Rectangle{ 0, 0, (float)texture.width, (float)texture.height },
 				inner, Vector2{ 0, 0 }, 0, WHITE);
-		else
+		if(c == 0 && column.kind == Column::Frame && std::all_of(inputs.begin(), inputs.end(),
+			[](float value) { return value == 0; }))
+			draw::textCentered("Arraste uma imagem", Vector2{ bounds.x + bounds.width / 2,
+				bounds.y + bounds.height / 2 }, ui::LabelFontSize * std::min(MAX_CAPTION_SCALE, 1 / zoom),
+				ui::toColor(ui::FaintColor));
+		else if(texture.id == 0)
 			draw::textCentered(std::to_string(column.count) + " entradas", Vector2{
 				bounds.x + bounds.width / 2, bounds.y + bounds.height / 2 }, ui::LabelFontSize,
 				ui::toColor(ui::MutedColor));
@@ -723,9 +732,11 @@ void NeuralNetwork::mouseDown(int x, int y)
 		execute();
 		return;
 	}
-	// o segundo clique no peso ou no bias selecionado o edita
-	if((part.kind == Part::Weight || part.kind == Part::Bias) && same(part, selected) &&
-		!isTraining())
+	// o segundo clique no peso ou no bias selecionado o edita, e no nome da
+	// camada muda a quantidade de neurônios
+	bool editable = part.kind == Part::Weight || part.kind == Part::Bias ||
+		(part.kind == Part::Layer && !running);
+	if(editable && same(part, selected) && !isTraining())
 	{
 		for(const Box& box : boxes)
 		{
@@ -769,7 +780,7 @@ void NeuralNetwork::mouseDoubleClick(int x, int y)
 				request = Request{ Request::Edit, part.layer, box.box };
 		}
 	}
-	else if(part.kind != Part::None)
+	else if(part.kind != Part::None && part.kind != Part::Layer)
 		mouseRightDown(x, y);
 }
 
@@ -907,7 +918,11 @@ void NeuralNetwork::setImageSide(int side)
 
 float NeuralNetwork::getSelectedValue()
 {
+	if(selected.kind == Part::Layer && selected.layer < 0)
+		return network.side > 0 ? network.side : network.inputs;
 	const Network::Layer& layer = network.layers[selected.layer];
+	if(selected.kind == Part::Layer)
+		return layer.size;
 	if(selected.kind == Part::Weight)
 		return layer.weights[(size_t)selected.from * layer.size + selected.to];
 	return layer.bias[selected.to];
@@ -915,9 +930,26 @@ float NeuralNetwork::getSelectedValue()
 
 bool NeuralNetwork::setSelectedValue(float value)
 {
-	if((selected.kind != Part::Weight && selected.kind != Part::Bias) ||
-		value == getSelectedValue())
+	if((selected.kind != Part::Weight && selected.kind != Part::Bias &&
+		selected.kind != Part::Layer) || value == getSelectedValue())
 		return false;
+	if(selected.kind == Part::Layer)
+	{
+		// a quantidade de neurônios, de entradas ou o lado da imagem
+		int count = (int)lroundf(value), oldInputs = network.inputs, oldOutputs = network.outputs();
+		Part part = selected;
+		if(selected.layer >= 0 && count >= 1 && count <= MAX_LAYER_SIZE)
+			network.resize(selected.layer, count, random);
+		else if(selected.layer < 0 && network.side > 0 && count >= 2 && count <= MAX_IMAGE_SIDE)
+			network.setInputs(count * count, count, random);
+		else if(selected.layer < 0 && network.side == 0 && count >= 0 && count <= MAX_LAYER_SIZE)
+			network.setInputs(count, 0, random);
+		else
+			return false;
+		structureChanged(oldInputs, oldOutputs);
+		select(part);
+		return true;
+	}
 	Network::Layer& layer = network.layers[selected.layer];
 	if(selected.kind == Part::Weight)
 		layer.weights[(size_t)selected.from * layer.size + selected.to] = value;
@@ -969,21 +1001,20 @@ void NeuralNetwork::loadFromFile(const std::string& fileName)
 int NeuralNetwork::loadData(const std::string& path)
 {
 	std::filesystem::path file = pathFromUtf8(path);
+	if(network.side == 0)
+		throw std::runtime_error("As entradas da rede precisam ser uma imagem para treinar com "
+			"imagens: clique direito nas entradas.");
+	// com a redução das imagens arrastadas, em qualquer lado
 	Dataset loaded, loadedTest;
 	if(Dataset::isIdx(file))
 	{
-		loaded = Dataset::loadIdx(file);
+		loaded = pixels::fromIdx(file, network.side);
 		std::filesystem::path testPath = Dataset::testPath(file);
 		if(!testPath.empty())
-			loadedTest = Dataset::loadIdx(testPath);
+			loadedTest = pixels::fromIdx(testPath, network.side);
 	}
 	else
-	{
-		if(network.side == 0)
-			throw std::runtime_error("As entradas da rede precisam ser uma imagem para treinar "
-				"com uma pasta de imagens.");
 		loaded = pixels::fromFolder(path, network.side, network.outputs());
-	}
 	cancelTraining();
 	data = std::move(loaded);
 	test = std::move(loadedTest);

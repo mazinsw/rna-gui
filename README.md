@@ -10,7 +10,9 @@ make            # build/NeuralNetwork (interface), build/rna (linha de comando) 
                 # build/RedesNeurais (console)
 make run        # abre a interface
 make test       # executa o console com testes_treinamento.txt
-make check      # testes do treino: derivadas, convergência, arquivos
+make check      # testes do treino: derivadas, convergência, arquivos e, com o MNIST
+                # baixado, o acerto e o tempo das épocas
+make mnist      # baixa o MNIST para dados/mnist e treina exemplos/mnist.bin
 ```
 
 Se o sistema não tiver raylib 5.5 ou superior, `make raylib` baixa e compila o raylib 6.2 em
@@ -157,7 +159,7 @@ função degrau:
 - `and.txt`, `or.txt` e `xor.txt`: a mesma rede no formato do console, com as 4 amostras da tabela
   verdade: `build/RedesNeurais < exemplos/xor.txt`. O console não tem bias no neurônio, então a
   primeira entrada é o bias, sempre 1, e o peso dela faz o papel do bias.
-- `digitos.bin` e `digitos28.bin`: reconhecem dígitos escritos à mão, veja abaixo.
+- `digitos.bin`, `digitos28.bin` e `mnist.bin`: reconhecem dígitos escritos à mão, veja abaixo.
 
 O bias é o limiar negativo do neurônio: no AND o neurônio dispara quando `x1 + x2 - 1,5 >= 0`, no OR
 quando `x1 + x2 - 0,5 >= 0`. O XOR não é linearmente separável e usa uma camada oculta: um neurônio
@@ -200,6 +202,28 @@ pesos). Com as mesmas 500 imagens reduzidas a 8 x 8, uma rede como a de `digitos
 a média dos pixels ignora pequenas diferenças de posição e de espessura do traço, e os pixels a
 mais ajudam pouco com poucos exemplos. O que mais aumenta o acerto é a quantidade de exemplos.
 
+### O MNIST inteiro
+
+`exemplos/mnist.bin` é a rede do notebook: 784 entradas, 256 neurônios ReLU e 10 softmax, com
+203.530 pesos e bias, treinada por 10 épocas com as 60 mil imagens de treino do MNIST. Ela acerta
+97% das 10 mil imagens de teste e 97 dos 100 dígitos de `exemplos/digitos`. Arraste-a para a
+janela, clique em "Executar" e arraste dígitos para reconhecer.
+
+As imagens do MNIST não estão no repositório. `make mnist` baixa os quatro arquivos (11 MB), confere
+o sha256 de cada um, descompacta em `dados/mnist`, fora do git, e treina a rede de novo, em cerca de
+8 segundos.
+
+Para treinar com o MNIST na interface, arraste a pasta `dados/mnist` (ou o arquivo
+`train-images-idx3-ubyte`) para a janela com uma rede cujas entradas formem uma imagem e clique em
+"Treinar". As imagens passam pela mesma redução das imagens arrastadas, no tamanho das entradas da
+rede, e as de teste, ao lado, medem o acerto a cada época. Sem a redução a rede acertaria 97% das
+imagens de teste do arquivo, mas só 77% das mesmas imagens arrastadas, recortadas e centralizadas
+de outro jeito. Até a rede de 8 x 8 de `digitos.bin` aproveita: treinada assim por 5 épocas, passa
+de 66% para 90% de acerto nos dígitos de `exemplos/digitos`.
+
+Os pesos são float e cada época leva cerca de 0,8 segundo numa thread de um Mac com M2 Pro: as
+entradas em 0, a maior parte dos pixels, não entram na conta.
+
 ### Imagens arrastadas
 
 Uma imagem pode ser arrastada em qualquer rede cujas entradas formem uma imagem (clique direito
@@ -211,8 +235,8 @@ em 28 x 28. Os valores ficam com 3 casas. O dígito no começo do nome
 do arquivo marca o alvo da saída dele; sem ele todos os alvos ficam em 0. As imagens são lidas pelo
 raylib: PNG sempre, os outros formatos só se o raylib foi compilado com eles.
 
-Arrastar uma pasta de imagens com o dígito no começo do nome faz o treino usar as imagens dela no
-lugar das amostras.
+Arrastar uma pasta de imagens com o dígito no começo do nome, ou o MNIST, faz o treino usar as
+imagens dela no lugar das amostras.
 
 `make digitos` refaz as duas redes e as amostras a partir das imagens das pastas, com a mesma redução
 das imagens arrastadas para a janela.
@@ -252,8 +276,8 @@ build/rna reconhecer <rede.bin> <imagem>...
 
 - `treinar` faz o mesmo que o botão "Treinar" e grava a rede treinada em `saida.bin` ou, sem ele,
   na própria rede. Sem `dados` usa as amostras gravadas ao lado da rede e as grava ao lado da
-  saída; `dados` é uma pasta de imagens com o dígito no começo do nome ou as imagens do MNIST (veja
-  abaixo). Com mais de 2000 amostras treina por épocas, 10 sem `--epocas`, e mostra o acerto de
+  saída; `dados` é uma pasta de imagens com o dígito no começo do nome ou o MNIST (veja
+  [O MNIST inteiro](#o-mnist-inteiro)). Com mais de 2000 amostras treina por épocas, 10 sem `--epocas`, e mostra o acerto de
   cada uma. Termina com 0 quando as saídas chegam aos alvos ou as épocas terminam e com 2 quando
   não; rodar de novo continua o treino.
 - `reconhecer` mostra, para cada imagem, a saída de maior valor e o valor dela, como ao arrastar a
@@ -269,6 +293,11 @@ $ build/rna reconhecer treinada.bin exemplos/digitos/*.png
 0_4.png: 6 (1), esperado 0
 ...
 Acertos: 79 de 100 (79%)
+$ build/rna treinar exemplos/mnist.bin dados/mnist --epocas 2 --saida nova.bin
+Época 1 de 2: acerto de 97,8% no treino e 97,1% no teste, 0,8 s
+Época 2 de 2: acerto de 97,9% no treino e 97,3% no teste, 1,6 s
+Treinado por 2 épocas com 60000 amostras.
+Rede salva em nova.bin.
 ```
 
 ## Console

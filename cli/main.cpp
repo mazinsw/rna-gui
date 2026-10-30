@@ -73,15 +73,16 @@ static Dataset loadData(const Network& network, const std::string& path, const s
 		if(data.empty())
 			return Dataset::loadSamples(pathFromUtf8(path), network.inputs, network.outputs());
 		std::filesystem::path path = pathFromUtf8(data);
+		if(network.side == 0)
+			throw std::runtime_error("as entradas da rede não formam um quadrado de pixels.");
+		// com a redução das imagens arrastadas para a janela
 		if(Dataset::isIdx(path))
 		{
 			std::filesystem::path testPath = Dataset::testPath(path);
 			if(!testPath.empty())
-				test = Dataset::loadIdx(testPath);
-			return Dataset::loadIdx(path);
+				test = pixels::fromIdx(testPath, network.side);
+			return pixels::fromIdx(path, network.side);
 		}
-		if(network.side == 0)
-			throw std::runtime_error("as entradas da rede não formam um quadrado de pixels.");
 		return pixels::fromFolder(data, network.side, network.outputs());
 	}
 	catch (const std::exception& e)

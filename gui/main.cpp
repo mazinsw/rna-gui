@@ -163,7 +163,9 @@ private:
 			message = "Treinado por " + steps + samples + accuracy;
 			break;
 		case Trainer::Stopped:
-			message = result.epochs ? "Treino parado depois de " + steps + accuracy :
+			message = result.epochs && result.steps == 0 ? std::string("Treino parado na primeira "
+				"época, a rede ficou com os pesos até ali.") : result.epochs ?
+				"Treino parado depois de " + steps + accuracy :
 				"Treino parado em " + steps + ", a rede ficou com os melhores pesos: " + errors;
 			break;
 		case Trainer::Invalid:
@@ -582,12 +584,16 @@ private:
 			status = "Adicione as entradas e uma saída para começar a rede.";
 		else if(selected.kind == NeuralNetwork::Part::Input)
 			status = "Delete exclui a entrada. Clique direito nas entradas para formar uma imagem.";
+		else if(selected.kind == NeuralNetwork::Part::Layer && selected.layer < 0)
+			status = neuralNetwork->getImageSide() > 0 ? "Clique de novo para mudar o lado da "
+				"imagem. Clique direito para trocar o tamanho dela." : "Clique de novo para mudar a "
+				"quantidade de entradas. Clique direito para formar uma imagem.";
 		else if(selected.kind == NeuralNetwork::Part::Neuron)
 			status = "Neurônio adiciona outro nesta camada. Clique direito troca a função da "
 				"camada, Delete exclui o neurônio.";
 		else if(selected.kind == NeuralNetwork::Part::Layer && selected.layer >= 0)
-			status = "Neurônio adiciona nesta camada e Camada, depois dela. Clique direito troca a "
-				"função, Delete exclui a camada.";
+			status = "Clique de novo para mudar a quantidade de neurônios. Camada adiciona outra "
+				"depois desta, clique direito troca a função e Delete exclui a camada.";
 		else
 			status = "Clique numa camada para adicionar nela, no peso ou no bias para editar. "
 				"Clique direito troca a função da camada.";
