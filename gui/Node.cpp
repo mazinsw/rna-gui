@@ -2,6 +2,7 @@
 #include "Resources.h"
 #include "Shapes.h"
 #include <algorithm>
+#include <cmath>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -16,9 +17,20 @@ Node::Node()
 
 std::string Node::formatNumber(double value, int digits)
 {
+	if(std::isnan(value))
+		return "nan";
+	if(std::isinf(value))
+		return value > 0 ? "inf" : "-inf";
 	char str[64];
-	snprintf(str, sizeof(str), "%.*f", digits, value);
-	std::string s(str);
+	// os grandes em notação científica para caber no rótulo: 1,23e15
+	snprintf(str, sizeof(str), fabs(value) >= 1e6 ? "%.*e" : "%.*f", digits, value);
+	std::string s(str), exponent;
+	size_t e = s.find('e');
+	if(e != std::string::npos)
+	{
+		exponent = "e" + std::to_string(atoi(s.c_str() + e + 1));
+		s.resize(e);
+	}
 	if(s.find('.') != std::string::npos)
 	{
 		size_t c = s.size();
@@ -33,7 +45,7 @@ std::string Node::formatNumber(double value, int digits)
 	size_t dot = s.find('.');
 	if(dot != std::string::npos)
 		s[dot] = ',';
-	return s;
+	return s + exponent;
 }
 
 bool Node::parseNumber(const std::string& text, double& value)
@@ -42,7 +54,8 @@ bool Node::parseNumber(const std::string& text, double& value)
 	std::replace(str.begin(), str.end(), ',', '.');
 	char* end;
 	double result = strtod(str.c_str(), &end);
-	if(end == str.c_str())
+	// strtod também aceita "nan" e "inf", que estragariam a rede
+	if(end == str.c_str() || !std::isfinite(result))
 		return false;
 	value = result;
 	return true;

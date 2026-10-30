@@ -1,6 +1,7 @@
 #include "OutputNode.h"
 #include "Shapes.h"
 #include "Widgets.h"
+#include <cmath>
 
 OutputNode::OutputNode()
 {
@@ -16,10 +17,13 @@ bool OutputNode::IsIn(const Point& p)
 
 void OutputNode::draw(bool running)
 {
-	// alvo: verde quando o valor é igual ao alvo, laranja quando difere
+	// alvo: verde quando o valor é igual ao alvo, laranja quando difere e
+	// vermelho quando o valor estourou
 	Vector2 center = getCenter();
 	Color color = ui::toColor(ui::NodeColor);
-	if(running)
+	if(running && !std::isfinite(getValue()))
+		color = ui::toColor(ui::DangerColor);
+	else if(running)
 		color = ui::toColor(isOnTarget() ? ui::SuccessColor : ui::WarningColor);
 	if(isSelected())
 		shapes::strokeCircle(center, 21, 4, ui::toColor(ui::SelectionRingColor));

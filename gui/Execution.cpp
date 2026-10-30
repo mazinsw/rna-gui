@@ -120,7 +120,80 @@ bool Execution::isOnTarget()
 	return true;
 }
 
-bool Execution::step()
+double Execution::squaredError()
+{
+	double error = 0;
+	for(Node* node : nodes)
+	{
+		if(!node->is(Node::TypeOutput))
+			continue;
+		double difference = ((OutputNode*)node)->getTarget() - node->getValue();
+		error += difference * difference;
+	}
+	return error;
+}
+
+Execution::Snapshot Execution::save()
+{
+	Snapshot snapshot;
+	for(Edge* edge : edges)
+		snapshot.weights.push_back(edge->getWeight());
+	for(Node* node : nodes)
+	{
+		if(node->is(Node::TypeNeuron))
+			snapshot.biases.push_back(((NeuronNode*)node)->getBias());
+	}
+	return snapshot;
+}
+
+void Execution::restore(const Snapshot& snapshot)
+{
+	for(size_t i = 0; i < edges.size(); i++)
+		edges[i]->setWeight(snapshot.weights[i]);
+	size_t i = 0;
+	for(Node* node : nodes)
+	{
+		if(node->is(Node::TypeNeuron))
+			((NeuronNode*)node)->setBias(snapshot.biases[i++]);
+	}
+}
+
+/**
+ * Indica se todos os pesos e bias são números finitos
+ */
+static bool isFinite(const std::vector<double>& values)
+{
+	for(double value : values)
+	{
+		if(!std::isfinite(value))
+			return false;
+	}
+	return true;
+}
+
+bool Execution::markChanged(const Snapshot& snapshot)
+{
+	bool changed = false;
+	for(size_t i = 0; i < edges.size(); i++)
+	{
+		bool edgeChanged = edges[i]->getWeight() != snapshot.weights[i];
+		edges[i]->setChanged(edgeChanged);
+		changed = changed || edgeChanged;
+	}
+	size_t i = 0;
+	for(Node* node : nodes)
+	{
+		if(!node->is(Node::TypeNeuron))
+			continue;
+		NeuronNode* neuron = (NeuronNode*)node;
+		bool biasChanged = neuron->getBias() != snapshot.biases[i++];
+		neuron->setBiasChanged(biasChanged);
+		changed = changed || biasChanged;
+	}
+	return changed;
+}
+
+bool Execution::step(double rate)
 {
 	// erro de cada neurônio, das saídas para as entradas
 	std::map<Node*, double> delta;
@@ -148,7 +221,7 @@ bool Execution::step()
 	{
 		double weight = edge->getWeight();
 		if(edge->getSecond()->is(Node::TypeNeuron))
-			weight += LearningRate * delta[edge->getSecond()] * edge->getFirst()->getValue();
+			weight += rate * delta[edge->getSecond()] * edge->getFirst()->getValue();
 		if(!std::isfinite(weight))
 			return false;
 		weights.push_back(weight);
@@ -157,26 +230,15 @@ bool Execution::step()
 	std::map<Node*, double> biases;
 	for(auto& item : delta)
 	{
-		double bias = ((NeuronNode*)item.first)->getBias() + LearningRate * item.second;
+		double bias = ((NeuronNode*)item.first)->getBias() + rate * item.second;
 		if(!std::isfinite(bias))
 			return false;
 		biases[item.first] = bias;
 	}
 	for(size_t i = 0; i < edges.size(); i++)
-	{
-		if(weights[i] == edges[i]->getWeight())
-			continue;
 		edges[i]->setWeight(weights[i]);
-		edges[i]->setChanged(true);
-	}
 	for(auto& item : biases)
-	{
-		NeuronNode* neuron = (NeuronNode*)item.first;
-		if(item.second == neuron->getBias())
-			continue;
-		neuron->setBias(item.second);
-		neuron->setBiasChanged(true);
-	}
+		((NeuronNode*)item.first)->setBias(item.second);
 	return true;
 }
 
@@ -193,7 +255,7 @@ void Execution::clearChanged()
 
 Execution::TrainResult Execution::train()
 {
-	TrainResult result = { Trained, 0, 0, 0 };
+	TrainResult result = { Trained, 0, 0, 0, false };
 	clearChanged();
 	if(!execute())
 	{
@@ -205,16 +267,44 @@ Execution::TrainResult Execution::train()
 		result.status = NoOutput;
 		return result;
 	}
-	result.errorBefore = getError();
-	while(!isOnTarget() && result.iterations < MaxIterations && step())
+	result.errorBefore = result.errorAfter = getError();
+	Snapshot start = save();
+	if(!std::isfinite(result.errorBefore) || !isFinite(start.weights) ||
+		!isFinite(start.biases))
 	{
-		execute();
+		result.status = Invalid;
+		return result;
+	}
+	double rate = LearningRate;
+	double error = squaredError();
+	while(!isOnTarget() && result.iterations < MaxIterations && rate >= MinLearningRate)
+	{
 		result.iterations++;
+		Snapshot previous = save();
+		if(step(rate))
+		{
+			execute();
+			// nan também é desfeito
+			double next = squaredError();
+			if(next <= error)
+			{
+				if(next < error)
+					rate *= 1.05;
+				error = next;
+				continue;
+			}
+			restore(previous);
+			execute();
+		}
+		rate /= 2;
 	}
 	result.errorAfter = getError();
-	if(!isOnTarget())
+	result.changed = markChanged(start);
+	if(isOnTarget())
+		result.status = result.iterations == 0 ? OnTarget : Trained;
+	else if(rate < MinLearningRate)
+		result.status = Stalled;
+	else
 		result.status = NotConverged;
-	else if(result.iterations == 0)
-		result.status = OnTarget;
 	return result;
 }

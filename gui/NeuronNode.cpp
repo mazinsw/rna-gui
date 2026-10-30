@@ -2,6 +2,7 @@
 #include "Icons.h"
 #include "Shapes.h"
 #include "Widgets.h"
+#include <cmath>
 
 NeuronNode::NeuronNode()
 {
@@ -54,10 +55,10 @@ void NeuronNode::draw(bool running)
 		ui::toColor(ui::InkColor));
 	if(!running)
 		return;
-	// valor calculado abaixo do neurônio
+	// valor calculado abaixo do neurônio, em vermelho se estourou
 	std::string text = "y = " + formatNumber(getValue(), 2);
 	Rectangle box = pillBox(Vector2{ center.x, center.y + 45 }, text, size, 20);
-	Color dark = ui::toColor(ui::InkColor);
+	Color dark = ui::toColor(std::isfinite(getValue()) ? ui::InkColor : ui::DangerColor);
 	drawPill(box, dark, dark);
 	drawTextCentered(text, Vector2{ center.x, center.y + 45 }, size, WHITE);
 }

@@ -101,13 +101,14 @@ public:
 	}
 
 	/**
-	 * Número com vírgula decimal, no máximo digits casas e sem zeros à direita
+	 * Número com vírgula decimal, no máximo digits casas e sem zeros à direita;
+	 * a partir de um milhão em notação científica, com digits casas na mantissa
 	 */
 	static std::string formatNumber(double value, int digits);
 
 	/**
 	 * Lê um número com vírgula ou ponto decimal, retorna false se o texto não
-	 * começa com um número
+	 * começa com um número finito
 	 */
 	static bool parseNumber(const std::string& text, double& value);
 

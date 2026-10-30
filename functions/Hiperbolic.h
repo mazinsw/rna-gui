@@ -21,8 +21,9 @@ public:
 	
 	virtual double execute(double x)
 	{
-		double ep = pow(M_E, - beta * x);
-		return (1.0 - ep) / (1.0 + ep);
+		// (1 - e^(-beta x)) / (1 + e^(-beta x)) sem estourar: e^(-beta x) vira
+		// infinito para x muito negativo e a divisão daria nan
+		return tanh(beta * x / 2);
 	}
 	
 	virtual const char* getName()

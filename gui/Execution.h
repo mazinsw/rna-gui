@@ -21,6 +21,10 @@ public:
 		Trained,
 		OnTarget,
 		NotConverged,
+		// nenhum passo, por menor que fosse, reduziu o erro
+		Stalled,
+		// a rede já tinha pesos, bias ou valores que não são números finitos
+		Invalid,
 		HasCycle,
 		NoOutput
 	};
@@ -31,10 +35,24 @@ public:
 		int iterations;
 		double errorBefore;
 		double errorAfter;
+		// algum peso ou bias mudou
+		bool changed;
 	};
 
+	// taxa de aprendizado inicial, ajustada a cada iteração
 	static constexpr double LearningRate = 0.1;
+	// abaixo dela o passo já não muda a rede e o treino para
+	static constexpr double MinLearningRate = 1e-12;
 	static constexpr int MaxIterations = 1000;
+private:
+	/**
+	 * Pesos das conexões e bias dos neurônios, na ordem das listas
+	 */
+	struct Snapshot
+	{
+		std::vector<double> weights;
+		std::vector<double> biases;
+	};
 private:
 	std::vector<Node*>& nodes;
 	std::vector<Edge*>& edges;
@@ -47,11 +65,26 @@ private:
 	void sort();
 	void visit(Node* node, std::map<Node*, int>& state);
 	bool hasOutput();
+
 	/**
-	 * Ajusta os pesos e os bias uma vez, retorna false se algum deixaria de
-	 * ser um número finito
+	 * Soma dos quadrados das diferenças entre o alvo e o valor de cada saída,
+	 * o erro que a retropropagação reduz
 	 */
-	bool step();
+	double squaredError();
+	Snapshot save();
+	void restore(const Snapshot& snapshot);
+
+	/**
+	 * Marca os pesos e os bias diferentes dos guardados, retorna true se algum
+	 * mudou
+	 */
+	bool markChanged(const Snapshot& snapshot);
+
+	/**
+	 * Ajusta os pesos e os bias uma vez com a taxa informada, retorna false sem
+	 * alterar a rede se algum deixaria de ser um número finito
+	 */
+	bool step(double rate);
 public:
 	Execution(std::vector<Node*>& nodes, std::vector<Edge*>& edges);
 
@@ -83,7 +116,9 @@ public:
 
 	/**
 	 * Treina até as saídas ficarem iguais aos alvos ou chegar ao limite de
-	 * iterações, marca os pesos e os bias alterados
+	 * iterações, marca os pesos e os bias alterados. A taxa cresce enquanto o
+	 * erro cai; o passo que aumenta o erro é desfeito e a taxa cai à metade,
+	 * então a rede nunca termina pior do que começou.
 	 */
 	TrainResult train();
 };

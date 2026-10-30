@@ -428,6 +428,12 @@ public:
 	Execution::TrainResult train();
 
 	/**
+	 * Sorteia de novo os pesos e os bias, entre -1 e 1; as conexões com as
+	 * saídas repassam o valor do neurônio e ficam como estão
+	 */
+	void randomizeWeights();
+
+	/**
 	 * Indica se uma camada nova está sendo arrastada com Shift
 	 */
 	bool isDrawingLayer();

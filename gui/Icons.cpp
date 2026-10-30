@@ -138,6 +138,12 @@ namespace icons
 			c.dot(14.5f, 9, 2);
 			break;
 		}
+		case Dice:
+			c.box(2.5f, 2.5f, 13, 13, 3.5f, false);
+			c.dot(6, 6, 1.4f);
+			c.dot(9, 9, 1.4f);
+			c.dot(12, 12, 1.4f);
+			break;
 		case Arrow:
 			c.lines({ { 3, 8 }, { 12, 8 } });
 			c.lines({ { 8.5f, 4.5f }, { 12, 8 }, { 8.5f, 11.5f } });

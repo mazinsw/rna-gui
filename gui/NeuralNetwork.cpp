@@ -1320,9 +1320,24 @@ bool NeuralNetwork::isRunning()
 Execution::TrainResult NeuralNetwork::train()
 {
 	Execution::TrainResult result = execution.train();
-	if(result.iterations > 0)
+	if(result.changed)
 		modified = true;
 	return result;
+}
+
+void NeuralNetwork::randomizeWeights()
+{
+	for(Edge* edge : edges)
+	{
+		if(!edge->getSecond()->is(Node::TypeOutput))
+			edge->setWeight(randomWeight());
+	}
+	for(Node* node : neurons)
+	{
+		if(node->is(Node::TypeNeuron))
+			((NeuronNode*)node)->setBias(randomWeight());
+	}
+	notifyDataChanged();
 }
 
 bool NeuralNetwork::isDrawingLayer()

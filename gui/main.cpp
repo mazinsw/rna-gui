@@ -98,6 +98,15 @@ private:
 			message = "Não convergiu em " + std::to_string(result.iterations) +
 				" iterações: " + errors;
 			break;
+		case Execution::Stalled:
+			message = "O erro parou de cair em " + std::to_string(result.iterations) +
+				(result.iterations == 1 ? " iteração: " : " iterações: ") + errors +
+				" Troque a função dos neurônios ou sorteie os pesos.";
+			break;
+		case Execution::Invalid:
+			message = "A rede tem valores inválidos (nan ou inf) e não pode ser treinada. "
+				"Sorteie os pesos para recomeçar.";
+			break;
 		case Execution::HasCycle:
 			message = "A rede tem um ciclo e não pode ser treinada.";
 			break;
@@ -117,6 +126,13 @@ private:
 			return Rectangle{ 0, 0, 0, 0 };
 		return Rectangle{ PanelRight + 40, 70, canvas.boundingBox.width - PanelRight - 100,
 			canvas.boundingBox.height - 180 };
+	}
+	void sortearPesos()
+	{
+		editor.cancel();
+		menu.close();
+		neuralNetwork->randomizeWeights();
+		message = "Pesos e bias sorteados entre -1 e 1.";
 	}
 	void reorganizar()
 	{
@@ -372,6 +388,9 @@ private:
 			if(running && ui::toolButton(CLAY_ID("Treinar"), icons::Train, CLAY_STRING("Treinar"),
 				true, ui::ButtonAccent))
 				treinar();
+			if(ui::toolButton(CLAY_ID("SortearPesos"), icons::Dice, CLAY_STRING("Sortear pesos"),
+				!neuralNetwork->isEmpty()))
+				sortearPesos();
 			ui::separator(6);
 			if(ui::toolButton(CLAY_ID("Reorganizar"), icons::Arrange, CLAY_STRING("Reorganizar")))
 				reorganizar();
