@@ -11,7 +11,9 @@
 namespace input
 {
 	/**
-	 * Intercepta os eventos de botão do mouse, chamar após InitWindow
+	 * Intercepta os eventos de botão do mouse e faz o arquivo solto e as
+	 * mudanças da janela acordarem o laço que espera eventos, chamar após
+	 * InitWindow
 	 */
 	void install();
 

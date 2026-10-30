@@ -20,9 +20,21 @@ extern "C"
 {
 	typedef struct GLFWwindow GLFWwindow;
 	typedef void (*GLFWmousebuttonfun)(GLFWwindow* window, int button, int action, int mods);
+	typedef void (*GLFWdropfun)(GLFWwindow* window, int count, const char* paths[]);
+	typedef void (*GLFWwindowrefreshfun)(GLFWwindow* window);
+	typedef void (*GLFWwindowsizefun)(GLFWwindow* window, int width, int height);
+	typedef void (*GLFWwindowcontentscalefun)(GLFWwindow* window, float x, float y);
 	GLFWwindow* glfwGetCurrentContext(void) GLFW_IMPORT;
 	GLFWmousebuttonfun glfwSetMouseButtonCallback(GLFWwindow* window,
 		GLFWmousebuttonfun callback) GLFW_IMPORT;
+	GLFWdropfun glfwSetDropCallback(GLFWwindow* window, GLFWdropfun callback) GLFW_IMPORT;
+	GLFWwindowrefreshfun glfwSetWindowRefreshCallback(GLFWwindow* window,
+		GLFWwindowrefreshfun callback) GLFW_IMPORT;
+	GLFWwindowsizefun glfwSetFramebufferSizeCallback(GLFWwindow* window,
+		GLFWwindowsizefun callback) GLFW_IMPORT;
+	GLFWwindowcontentscalefun glfwSetWindowContentScaleCallback(GLFWwindow* window,
+		GLFWwindowcontentscalefun callback) GLFW_IMPORT;
+	void glfwPostEmptyEvent(void) GLFW_IMPORT;
 }
 
 namespace input
@@ -39,6 +51,51 @@ namespace input
 	static bool doubleClicked = false;
 	static double lastPressTime = -1;
 	static Vector2 lastPressPosition = { 0, 0 };
+	// callbacks do raylib chamados pelos que acordam o laço
+	static GLFWdropfun raylibDrop = NULL;
+	static GLFWwindowrefreshfun raylibRefresh = NULL;
+	static GLFWwindowsizefun raylibFramebufferSize = NULL;
+	static GLFWwindowcontentscalefun raylibContentScale = NULL;
+
+	/**
+	 * Faz o glfwWaitEvents do fim do quadro retornar. No macOS o arquivo solto
+	 * e as mudanças da janela chegam por callbacks do AppKit, sem evento na
+	 * fila, e a janela só seria desenhada no próximo movimento do mouse.
+	 */
+	static void wake()
+	{
+		void (*postEmptyEvent)(void) = glfwPostEmptyEvent;
+		if(postEmptyEvent != NULL)
+			postEmptyEvent();
+	}
+
+	static void dropCallback(GLFWwindow* window, int count, const char* paths[])
+	{
+		if(raylibDrop != NULL)
+			raylibDrop(window, count, paths);
+		wake();
+	}
+
+	static void refreshCallback(GLFWwindow* window)
+	{
+		if(raylibRefresh != NULL)
+			raylibRefresh(window);
+		wake();
+	}
+
+	static void framebufferSizeCallback(GLFWwindow* window, int width, int height)
+	{
+		if(raylibFramebufferSize != NULL)
+			raylibFramebufferSize(window, width, height);
+		wake();
+	}
+
+	static void contentScaleCallback(GLFWwindow* window, float x, float y)
+	{
+		if(raylibContentScale != NULL)
+			raylibContentScale(window, x, y);
+		wake();
+	}
 
 	/**
 	 * Registra um clique e verifica se ele completa um clique duplo
@@ -89,6 +146,21 @@ namespace input
 			return;
 		raylibCallback = setMouseButtonCallback(window, mouseButtonCallback);
 		installed = true;
+		GLFWdropfun (*setDrop)(GLFWwindow*, GLFWdropfun) = glfwSetDropCallback;
+		GLFWwindowrefreshfun (*setRefresh)(GLFWwindow*, GLFWwindowrefreshfun) =
+			glfwSetWindowRefreshCallback;
+		GLFWwindowsizefun (*setFramebufferSize)(GLFWwindow*, GLFWwindowsizefun) =
+			glfwSetFramebufferSizeCallback;
+		GLFWwindowcontentscalefun (*setContentScale)(GLFWwindow*, GLFWwindowcontentscalefun) =
+			glfwSetWindowContentScaleCallback;
+		if(setDrop != NULL)
+			raylibDrop = setDrop(window, dropCallback);
+		if(setRefresh != NULL)
+			raylibRefresh = setRefresh(window, refreshCallback);
+		if(setFramebufferSize != NULL)
+			raylibFramebufferSize = setFramebufferSize(window, framebufferSizeCallback);
+		if(setContentScale != NULL)
+			raylibContentScale = setContentScale(window, contentScaleCallback);
 	}
 
 	void beginFrame()

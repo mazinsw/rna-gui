@@ -844,12 +844,13 @@ public:
 				DisableEventWaiting();
 			else
 				EnableEventWaiting();
+			// antes de EndDrawing, que espera o próximo evento
+			updateTitle();
+			captureWindow(settings);
 			BeginDrawing();
 			ClearBackground(RAYWHITE);
 			ClayRaylib_Render(commands);
 			EndDrawing();
-			updateTitle();
-			captureWindow(settings);
 		}
 		settings.uiScale = ClayRaylib_GetScale();
 		settings.fileName = fileName;
