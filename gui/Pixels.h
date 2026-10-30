@@ -15,8 +15,9 @@ namespace pixels
 	 * Reduz a imagem em tons de cinza (0 preto, 1 branco), linha a linha. Como
 	 * no MNIST: o fundo claro é invertido para o traço ficar claro, o contraste
 	 * vai de 0 a 1 e o traço é recortado, centralizado num quadrado e reduzido
-	 * pela média dos pixels para caber dentro de uma borda vazia de 1 pixel
-	 * (sem borda até 4 x 4). Uma imagem de uma cor só dá tudo 0.
+	 * pela média dos pixels para caber dentro de uma borda vazia de 1/7 do
+	 * lado, os 4 pixels do MNIST em 28 x 28 e 1 em 8 x 8. Os valores têm 3
+	 * casas. Uma imagem de uma cor só dá tudo 0.
 	 */
 	std::vector<double> fromGray(const std::vector<float>& gray, int width, int height,
 		int side);

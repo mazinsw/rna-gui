@@ -6,8 +6,8 @@
 #   make app       pacote build/NeuralNetwork.app (somente macOS)
 #   make run       executa a GUI
 #   make test      executa o console com testes_treinamento.txt
-#   make digitos   refaz exemplos/digitos.bin e as amostras a partir das imagens
-#                  de exemplos/digitos
+#   make digitos   refaz exemplos/digitos.bin e digitos28.bin e as amostras a
+#                  partir das imagens de exemplos/digitos e digitos28
 #   make clean     remove build/
 #   make distclean remove build/ e o raylib baixado
 #
@@ -123,6 +123,7 @@ $(DIGITOS): $(DIGITOS_OBJS)
 
 digitos: $(DIGITOS)
 	./$(DIGITOS) exemplos/digitos exemplos/digitos.bin
+	./$(DIGITOS) exemplos/digitos28 exemplos/digitos28.bin 28 16
 
 $(GUI_OBJS): | raylib-check
 

@@ -2,6 +2,7 @@
 #include "Platform.h"
 #include <raylib.h>
 #include <algorithm>
+#include <cmath>
 #include <ctype.h>
 #include <fstream>
 #include <iterator>
@@ -70,7 +71,7 @@ std::vector<double> pixels::fromGray(const std::vector<float>& gray, int width, 
 	// quadrado centrado no traço, o que fica fora da imagem é fundo
 	int w = right - left + 1, h = bottom - top + 1, size = std::max(w, h);
 	int x0 = left - (size - w) / 2, y0 = top - (size - h) / 2;
-	int margin = side > 4 ? 1 : 0, inner = side - 2 * margin;
+	int margin = (int)lround(side / 7.0), inner = side - 2 * margin;
 	std::vector<std::vector<double> > weights = areaWeights(size, inner);
 	for(int i = 0; i < inner; i++)
 	{
@@ -90,7 +91,8 @@ std::vector<double> pixels::fromGray(const std::vector<float>& gray, int width, 
 					sum += weights[i][k] * weights[j][l] * values[y * width + x];
 				}
 			}
-			result[(i + margin) * side + j + margin] = sum;
+			// 3 casas bastam à rede e deixam curto o arquivo das amostras
+			result[(i + margin) * side + j + margin] = round(sum * 1000) / 1000;
 		}
 	}
 	return result;

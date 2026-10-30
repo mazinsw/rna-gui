@@ -150,7 +150,7 @@ função degrau:
 - `and.txt`, `or.txt` e `xor.txt`: a mesma rede no formato do console, com as 4 amostras da tabela
   verdade: `build/RedesNeurais < exemplos/xor.txt`. O console não tem bias no neurônio, então a
   primeira entrada é o bias, sempre 1, e o peso dela faz o papel do bias.
-- `digitos.bin`: reconhece dígitos escritos à mão, veja abaixo.
+- `digitos.bin` e `digitos28.bin`: reconhecem dígitos escritos à mão, veja abaixo.
 
 O bias é o limiar negativo do neurônio: no AND o neurônio dispara quando `x1 + x2 - 1,5 >= 0`, no OR
 quando `x1 + x2 - 0,5 >= 0`. O XOR não é linearmente separável e usa uma camada oculta: um neurônio
@@ -174,22 +174,62 @@ baixo para o 9. Ao lado ficam as 100 amostras, `digitos.amostras.txt`, feitas da
 3. Para ensinar uma imagem reconhecida errado, clique no alvo da saída certa, se o nome não o
    marcou, e em "Treinar". Ela entra nas amostras e "Salvar" a grava com as outras.
 
+### Uma entrada por pixel
+
+`exemplos/digitos28.bin` tem uma entrada para cada pixel das imagens do MNIST: 784 entradas (28 x 28),
+16 neurônios ReLU, 10 softmax e 10 saídas, com 12.714 conexões. Ao lado ficam 500 amostras, feitas
+das imagens da pasta `exemplos/digitos28`: os 50 primeiros exemplos de cada dígito do conjunto de
+treino do MNIST. Os 100 dígitos de `exemplos/digitos`, do conjunto de teste, não estão entre elas e
+servem para testar a rede com dígitos que ela nunca viu.
+
+O uso é o mesmo, e a grade de entradas mostra o dígito arrastado como uma imagem. "Treinar" leva de 1 a
+3 segundos, com a janela parada enquanto isso.
+
+A rede treinada acerta cerca de 65% dos 100 dígitos de teste (de 62% a 72%, conforme os pesos
+sorteados). Mais pixels não querem dizer mais acertos: com as mesmas 500 imagens reduzidas a 8 x 8 uma
+rede como a de `digitos.bin` acerta cerca de 75%, porque a média dos pixels ignora pequenas diferenças
+de posição e de espessura do traço, e com poucos exemplos as 784 entradas deixam a rede decorar
+detalhes de cada imagem. O que mais aumenta o acerto é a quantidade de exemplos.
+
+### Imagens arrastadas
+
 Uma imagem pode ser arrastada em qualquer rede cujas entradas de dado formem um quadrado (64 para 8 x
 8). Os pixels vão para as entradas na ordem de leitura delas, de cima para baixo e da esquerda para a
 direita. Antes a imagem é reduzida como no MNIST: o fundo claro é invertido, para o traço escuro no
 papel ficar claro como no dataset, o contraste vai de 0 a 1 e o traço é recortado, centralizado e
-reduzido pela média dos pixels para dentro de uma borda vazia de 1 pixel. O dígito no começo do nome
+reduzido pela média dos pixels para dentro de uma borda vazia de 1/7 do lado, 1 pixel em 8 x 8 e 4
+em 28 x 28. Os valores ficam com 3 casas. O dígito no começo do nome
 do arquivo marca o alvo da saída dele; sem ele todos os alvos ficam em 0. As imagens são lidas pelo
 raylib: PNG sempre, os outros formatos só se o raylib foi compilado com eles.
 
 Com 10 exemplos de cada dígito a rede acerta todos os que aprendeu, mas só cerca de 6 em 10 dígitos
 que nunca viu. O notebook chega a 95% porque treina com as 60 mil imagens do MNIST.
 
-`make digitos` refaz a rede, com outros pesos sorteados, e as amostras a partir das imagens da
-pasta, com a mesma redução das imagens arrastadas para a janela.
+`make digitos` refaz as duas redes e as amostras a partir das imagens das pastas, com a mesma redução
+das imagens arrastadas para a janela.
 
-As imagens são do [MNIST](https://yann.lecun.com/exdb/mnist/), de Yann LeCun, Corinna Cortes e
-Christopher J. C. Burges, licenciado em CC BY-SA 3.0, recortadas da figura do notebook.
+### Imagens
+
+As imagens são as originais, de 28 x 28 pixels, do [MNIST](https://yann.lecun.com/exdb/mnist/), de
+Yann LeCun, Corinna Cortes e Christopher J. C. Burges, licenciado em CC BY-SA 3.0. As de
+`exemplos/digitos28` são os 50 primeiros exemplos de cada dígito do conjunto de treino, na ordem
+dele: `7_00.png` é o primeiro 7. As de `exemplos/digitos` são do conjunto de teste e são os 100
+dígitos da figura do notebook, na posição deles nela:
+`7_3.png` é o 7 da quarta linha. Os índices no conjunto de teste, da primeira à última linha da
+figura:
+
+| Dígito | Índices |
+|---|---|
+| 0 | 6131, 305, 5531, 2081, 3646, 312, 71, 3445, 2127, 6351 |
+| 1 | 767, 1351, 8459, 4602, 9499, 96, 6527, 3050, 1736, 6233 |
+| 2 | 7237, 6519, 4504, 6345, 9072, 4801, 9849, 8532, 6240, 1374 |
+| 3 | 1384, 4552, 938, 4770, 9231, 734, 1615, 6664, 9925, 7554 |
+| 4 | 308, 3405, 4377, 6102, 8329, 5175, 740, 1767, 6734, 4590 |
+| 5 | 6880, 4942, 102, 812, 7974, 4463, 2670, 1370, 4219, 3890 |
+| 6 | 3304, 9627, 6498, 2000, 1436, 3690, 9617, 6605, 5568, 4897 |
+| 7 | 2666, 626, 4148, 2967, 7145, 5234, 6490, 6944, 7028, 9204 |
+| 8 | 2246, 936, 9375, 6493, 7244, 7146, 2004, 7767, 1202, 8476 |
+| 9 | 5268, 2494, 5671, 1428, 4078, 6168, 8962, 2740, 9740, 3693 |
 
 ## Console
 

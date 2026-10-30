@@ -2,12 +2,12 @@
  * Gera o exemplo de reconhecimento de dígitos a partir das imagens de uma
  * pasta, cada uma com o dígito no começo do nome (3_7.png):
  *
- * uso: digitos <pasta> <rede.bin>
+ * uso: digitos <pasta> <rede.bin> [lado] [ocultos]
  *
- * Grava a rede, 64 entradas (8 x 8 pixels) -> 10 neurônios ReLU -> 10
- * neurônios softmax -> 10 saídas, com pesos sorteados, e ao lado as amostras
- * (rede.amostras.txt), uma por imagem, reduzidas por pixels::fromFile como as
- * imagens arrastadas para a interface.
+ * Grava a rede, lado x lado entradas (8 x 8 pixels sem o lado) -> ocultos
+ * neurônios ReLU (10 sem o número) -> 10 neurônios softmax -> 10 saídas, com
+ * pesos sorteados, e ao lado as amostras (rede.amostras.txt), uma por imagem,
+ * reduzidas por pixels::fromFile como as imagens arrastadas para a interface.
  */
 #include "../gui/Pixels.h"
 #include "../gui/Platform.h"
@@ -19,12 +19,11 @@
 #include <stdexcept>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <vector>
 
-// lado da imagem, neurônios da camada oculta e classes (dígitos)
-static const int Side = 8;
-static const int Hidden = 10;
+// classes, os dígitos
 static const int Classes = 10;
 // mesmos valores de Node::Type e NeuronNode::FunctionType
 enum { TypeNeuron = 1, TypeInput, TypeOutput };
@@ -106,9 +105,12 @@ static std::string formatValue(double value)
 
 int main(int argc, char *argv[])
 {
-	if(argc != 3)
+	// lado da imagem e neurônios da camada oculta
+	int side = argc > 3 ? atoi(argv[3]) : 8;
+	int hidden = argc > 4 ? atoi(argv[4]) : 10;
+	if(argc < 3 || argc > 5 || side < 2 || hidden < 1)
 	{
-		fprintf(stderr, "usage: %s <folder> <network.bin>\n", argv[0]);
+		fprintf(stderr, "usage: %s <folder> <network.bin> [side] [hidden]\n", argv[0]);
 		return 1;
 	}
 	SetTraceLogLevel(LOG_WARNING);
@@ -129,40 +131,43 @@ int main(int argc, char *argv[])
 		std::mt19937 random(1);
 		std::uniform_int_distribution<int> distribution(-100, 100);
 		auto randomWeight = [&]() { return distribution(random) / 100.0; };
-		// entradas em quadrado, como os pixels, à esquerda das camadas de 10
-		// nós a 120 pixels um do outro; os centros ficam nos pontos da grade
+		// entradas em quadrado, como os pixels, à esquerda das camadas de nós a
+		// 120 pixels um do outro, todos centralizados na altura da maior camada;
+		// os centros ficam nos pontos da grade
 		const int top = 70, spacing = 120, pixel = 40;
-		const int middle = top + spacing * (Classes - 1) / 2;
-		const int left = 250, gridTop = middle - pixel * (Side - 1) / 2;
-		const int hiddenX = left + pixel * (Side - 1) + 240;
+		const int middle = top + spacing * (std::max(hidden, Classes) - 1) / 2;
+		const int hiddenTop = middle - spacing * (hidden - 1) / 2;
+		const int classesTop = middle - spacing * (Classes - 1) / 2;
+		const int left = 250, gridTop = middle - pixel * (side - 1) / 2;
+		const int hiddenX = left + pixel * (side - 1) + 240;
 		const int softmaxX = hiddenX + 200, outputX = softmaxX + 160;
 		std::vector<NodeData> nodes;
 		std::vector<EdgeData> edges;
-		for(int i = 0; i < Side * Side; i++)
-			nodes.push_back({ TypeInput, 0, left + pixel * (i % Side), gridTop + pixel * (i / Side),
+		for(int i = 0; i < side * side; i++)
+			nodes.push_back({ TypeInput, 0, left + pixel * (i % side), gridTop + pixel * (i / side),
 				0 });
 		int hiddenStart = (int)nodes.size() + 1;
-		for(int i = 0; i < Hidden; i++)
-			nodes.push_back({ TypeNeuron, FunctionRelu, hiddenX, top + spacing * i, 0 });
+		for(int i = 0; i < hidden; i++)
+			nodes.push_back({ TypeNeuron, FunctionRelu, hiddenX, hiddenTop + spacing * i, 0 });
 		int softmaxStart = (int)nodes.size() + 1;
 		for(int i = 0; i < Classes; i++)
-			nodes.push_back({ TypeNeuron, FunctionSoftmax, softmaxX, top + spacing * i, 0 });
+			nodes.push_back({ TypeNeuron, FunctionSoftmax, softmaxX, classesTop + spacing * i, 0 });
 		int outputStart = (int)nodes.size() + 1;
 		for(int i = 0; i < Classes; i++)
-			nodes.push_back({ TypeOutput, 0, outputX, top + spacing * i, 0 });
+			nodes.push_back({ TypeOutput, 0, outputX, classesTop + spacing * i, 0 });
 		for(NodeData& node : nodes)
 		{
 			if(node.type == TypeNeuron)
 				node.bias = randomWeight();
 		}
-		for(int h = 0; h < Hidden; h++)
+		for(int h = 0; h < hidden; h++)
 		{
-			for(int i = 0; i < Side * Side; i++)
+			for(int i = 0; i < side * side; i++)
 				edges.push_back({ 1 + i, hiddenStart + h, randomWeight() });
 		}
 		for(int c = 0; c < Classes; c++)
 		{
-			for(int h = 0; h < Hidden; h++)
+			for(int h = 0; h < hidden; h++)
 				edges.push_back({ hiddenStart + h, softmaxStart + c, randomWeight() });
 		}
 		// a saída ligada a um nó só repassa o valor dele
@@ -179,7 +184,7 @@ int main(int argc, char *argv[])
 		for(const std::filesystem::path& image : images)
 		{
 			std::string name = pathToUtf8(image);
-			std::vector<double> values = pixels::fromFile(name, Side);
+			std::vector<double> values = pixels::fromFile(name, side);
 			for(size_t i = 0; i < values.size(); i++)
 				samples << (i > 0 ? " " : "") << formatValue(values[i]);
 			samples << "\nsaidas";
