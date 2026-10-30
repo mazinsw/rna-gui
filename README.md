@@ -51,8 +51,8 @@ A rede desenhada na interface é salva em:
 Para abrir outra rede, arraste o arquivo para a janela. O título mostra o arquivo aberto, com `*`
 quando há alterações não salvas, e "Salvar" grava nesse arquivo.
 
-Ao sair, a posição, o tamanho e a maximização da janela e o zoom e o deslocamento da vista ficam em
-`estado.txt`, na mesma pasta. A janela volta como estava, centralizada se o monitor dela não estiver
+Ao sair, a posição, o tamanho e a maximização da janela, o tamanho da interface e o zoom e o
+deslocamento da vista ficam em `estado.txt`, na mesma pasta. A janela volta como estava, centralizada se o monitor dela não estiver
 mais ligado, e a vista volta se a rede aberta ao iniciar for a última que estava aberta.
 
 O arquivo é gravado no formato 1.1 da versão Windows original enquanto nenhum bias é usado. Com bias
@@ -93,6 +93,9 @@ peso 1.
 - A roda do mouse aproxima e afasta a rede em volta do ponteiro, de 25% a 400%. Arraste o fundo
   vazio sem Shift, ou qualquer ponto com o botão do meio, para mover a rede na tela. Abrir um
   arquivo arrastado volta a vista para 100%.
+- Ctrl + e Ctrl - (Cmd no Mac) aumentam e diminuem o tamanho da interface, de 75% a 200%: botões,
+  menus, diálogos, dicas, status e legenda. Ctrl 0 volta para 100%. A rede mantém o tamanho, que
+  muda com a roda do mouse.
 
 Cada neurônio tem um bias (`b`, mostrado acima dele) somado à entrada da função de ativação, que faz
 o papel do limiar negativo. Ele começa aleatório e é treinado junto com os pesos. Para modelar o

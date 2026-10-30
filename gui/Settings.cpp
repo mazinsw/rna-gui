@@ -1,5 +1,6 @@
 #include "Settings.h"
 #include "Platform.h"
+#include "Widgets.h"
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -11,6 +12,7 @@
  * posicao x y
  * tamanho largura altura
  * maximizada 0|1
+ * interface escala
  * rede caminho em UTF-8
  * vista zoom deslocamentoX deslocamentoY
  */
@@ -22,7 +24,7 @@
 
 Settings loadSettings()
 {
-	Settings settings = { false, 0, 0, 800, 600, false, "", 1, { 0, 0 } };
+	Settings settings = { false, 0, 0, 800, 600, false, 1, "", 1, { 0, 0 } };
 	std::ifstream file(pathFromUtf8(getSettingsFilePath()), std::ios::binary);
 	std::string line, fileName;
 	bool hasView = false;
@@ -31,7 +33,7 @@ Settings loadSettings()
 		std::istringstream values(line);
 		std::string key;
 		int a, b;
-		float zoom;
+		float scale, zoom;
 		Vector2 pan;
 		values >> key;
 		if(key == "posicao" && values >> a >> b)
@@ -47,6 +49,9 @@ Settings loadSettings()
 		}
 		else if(key == "maximizada" && values >> a)
 			settings.maximized = a != 0;
+		else if(key == "interface" && values >> scale && scale >= ui::MinScale &&
+			scale <= ui::MaxScale)
+			settings.uiScale = scale;
 		else if(key == "rede")
 			std::getline(values >> std::ws, fileName);
 		else if(key == "vista" && values >> zoom >> pan.x >> pan.y && zoom > 0 &&
@@ -72,6 +77,7 @@ void saveSettings(const Settings& settings)
 		file << "posicao " << settings.x << " " << settings.y << "\n";
 	file << "tamanho " << settings.width << " " << settings.height << "\n";
 	file << "maximizada " << (settings.maximized ? 1 : 0) << "\n";
+	file << "interface " << settings.uiScale << "\n";
 	if(!settings.fileName.empty())
 	{
 		file << "rede " << settings.fileName << "\n";

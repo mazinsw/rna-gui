@@ -30,6 +30,28 @@ void ClayRaylib_Shutdown();
 void ClayRaylib_Render(Clay_RenderCommandArray commands);
 
 /**
+ * Tamanho da interface, como o zoom de um navegador: o layout fica em unidades
+ * da interface, multiplicadas pela escala ao desenhar e ao medir o texto
+ */
+void ClayRaylib_SetScale(float scale);
+float ClayRaylib_GetScale();
+
+/**
+ * Tamanho da janela em unidades da interface, para o layout
+ */
+Clay_Dimensions ClayRaylib_GetLayoutDimensions();
+
+/**
+ * Ponto da janela em unidades da interface
+ */
+Vector2 ClayRaylib_ToLayout(Vector2 point);
+
+/**
+ * Largura do texto em unidades da interface, a mesma medida pelo layout
+ */
+float ClayRaylib_MeasureText(const std::string& text, uint16_t fontSize);
+
+/**
  * Converte uma string que deve continuar viva até o fim do quadro
  */
 inline Clay_String toClayString(const std::string& str)

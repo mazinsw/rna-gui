@@ -9,8 +9,8 @@
 #define WINDOW_MIN_HEIGHT 440
 
 /**
- * Estado guardado entre as execuções: a janela e a vista da última rede
- * aberta
+ * Estado guardado entre as execuções: a janela, o tamanho da interface e a
+ * vista da última rede aberta
  */
 struct Settings
 {
@@ -19,6 +19,8 @@ struct Settings
 	bool hasPosition;
 	int x, y, width, height;
 	bool maximized;
+	// tamanho da interface, 1 no padrão
+	float uiScale;
 	// arquivo da rede com o zoom e o deslocamento abaixo, vazio sem vista
 	std::string fileName;
 	float zoom;

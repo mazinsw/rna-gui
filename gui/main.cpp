@@ -14,11 +14,13 @@
 #include "Widgets.h"
 #include "NeuralNetwork.h"
 
-// tecla que solta o nó do alinhamento ao mover
+// tecla que solta o nó do alinhamento ao mover e a dos atalhos
 #if defined(__APPLE__)
 #define FREE_MOVE_KEY "Option"
+#define COMMAND_KEY "Cmd"
 #else
 #define FREE_MOVE_KEY "Alt"
+#define COMMAND_KEY "Ctrl"
 #endif
 
 class RedesNeuraisFrame
@@ -74,7 +76,15 @@ private:
 		Clay_ElementData data = Clay_GetElementData(CLAY_ID("NeuralNetwork"));
 		if(!data.found)
 			return Vector2{ 0, 0 };
-		return Vector2{ data.boundingBox.x, data.boundingBox.y };
+		float scale = ClayRaylib_GetScale();
+		return Vector2{ data.boundingBox.x * scale, data.boundingBox.y * scale };
+	}
+	/**
+	 * Fim do painel de botões na área de edição, que cresce com a interface
+	 */
+	int panelRight()
+	{
+		return (int)roundf(PanelRight * ClayRaylib_GetScale());
 	}
 	void executar()
 	{
@@ -134,8 +144,10 @@ private:
 		Clay_ElementData canvas = Clay_GetElementData(CLAY_ID("NeuralNetwork"));
 		if(!canvas.found)
 			return Rectangle{ 0, 0, 0, 0 };
-		return Rectangle{ PanelRight + 40, 70, canvas.boundingBox.width - PanelRight - 100,
-			canvas.boundingBox.height - 180 };
+		float scale = ClayRaylib_GetScale();
+		float left = panelRight();
+		return Rectangle{ left + 40, 70, canvas.boundingBox.width * scale - left - 100,
+			canvas.boundingBox.height * scale - 180 };
 	}
 	void sortearPesos()
 	{
@@ -203,7 +215,7 @@ private:
 		try
 		{
 			neuralNetwork->loadFromFile(path);
-			neuralNetwork->keepRightOf(PanelRight);
+			neuralNetwork->keepRightOf(panelRight());
 			fileName = path;
 			loadSamples(path);
 		}
@@ -255,13 +267,13 @@ private:
 			const Point& p = request.node->getPosition();
 			Vector2 corner = neuralNetwork->toScreen(Vector2{ p.x + 36.0f, p.y - 28.0f });
 			menu.show(neuralNetwork, request.node, NULL,
-				Vector2{ origin.x + corner.x, origin.y + corner.y });
+				ClayRaylib_ToLayout(Vector2{ origin.x + corner.x, origin.y + corner.y }));
 		}
 		else if(request.kind == NeuralNetwork::Request::Menu)
 		{
 			Rectangle box = neuralNetwork->toScreen(request.edge->getLabelBox());
 			menu.show(neuralNetwork, NULL, request.edge,
-				Vector2{ origin.x + box.x + box.width + 6, origin.y + box.y });
+				ClayRaylib_ToLayout(Vector2{ origin.x + box.x + box.width + 6, origin.y + box.y }));
 		}
 	}
 	/**
@@ -310,11 +322,11 @@ private:
 				neuralNetwork->keyDown(key);
 		}
 		Clay_ElementId id = CLAY_ID("NeuralNetwork");
-		Clay_ElementData data = Clay_GetElementData(id);
-		if(!data.found)
+		if(!Clay_GetElementData(id).found)
 			return;
-		int x = (int)(mouse.x - data.boundingBox.x);
-		int y = (int)(mouse.y - data.boundingBox.y);
+		Vector2 origin = canvasOrigin();
+		int x = (int)(mouse.x - origin.x);
+		int y = (int)(mouse.y - origin.y);
 		// os painéis flutuantes capturam o mouse, então fora deles
 		bool over = Clay_PointerOver(id);
 		bool moved = mouse.x != last.x || mouse.y != last.y;
@@ -340,6 +352,43 @@ private:
 		if(input::mouseReleased() && !input::mouseDown())
 			neuralNetwork->mouseUp(x, y);
 		openRequest();
+	}
+	/**
+	 * Muda o tamanho da interface e o mostra no status, retorna true se mudou
+	 */
+	bool setScale(float scale)
+	{
+		if(scale == 1)
+			message = "Interface no tamanho padrão, 100%.";
+		else
+			message = "Interface em " + std::to_string((int)roundf(scale * 100)) + "%" +
+				(scale == ui::MaxScale ? ", o maior tamanho" : scale == ui::MinScale ?
+				", o menor tamanho" : "") + ". " COMMAND_KEY "+0 volta ao padrão.";
+		if(scale == ClayRaylib_GetScale())
+			return false;
+		// o menu ficaria onde foi aberto, longe do nó
+		menu.close();
+		ClayRaylib_SetScale(scale);
+		return true;
+	}
+	/**
+	 * Ctrl + e Ctrl - (Cmd no Mac) mudam o tamanho da interface e Ctrl 0 volta
+	 * ao padrão, retorna true se mudou
+	 */
+	bool updateScale()
+	{
+		if(!ui::commandDown())
+			return false;
+		float scale = ClayRaylib_GetScale();
+		if(IsKeyPressed(KEY_EQUAL) || IsKeyPressedRepeat(KEY_EQUAL) || IsKeyPressed(KEY_KP_ADD) ||
+			IsKeyPressedRepeat(KEY_KP_ADD))
+			return setScale(ui::nextScale(scale, 1));
+		if(IsKeyPressed(KEY_MINUS) || IsKeyPressedRepeat(KEY_MINUS) ||
+			IsKeyPressed(KEY_KP_SUBTRACT) || IsKeyPressedRepeat(KEY_KP_SUBTRACT))
+			return setScale(ui::nextScale(scale, -1));
+		if(IsKeyPressed(KEY_ZERO) || IsKeyPressed(KEY_KP_0))
+			return setScale(1);
+		return false;
 	}
 	/**
 	 * Aplica o resultado dos diálogos fechados neste quadro, retorna true se
@@ -517,7 +566,8 @@ private:
 		// posição do quadro anterior, depois de declarado o elemento é recalculado
 		Vector2 origin = canvasOrigin();
 		Clay_ElementData canvas = Clay_GetElementData(CLAY_ID("NeuralNetwork"));
-		float width = canvas.found ? canvas.boundingBox.width : (float)GetScreenWidth();
+		float width = canvas.found ? canvas.boundingBox.width :
+			ClayRaylib_GetLayoutDimensions().width;
 		CLAY({ .id = CLAY_ID("NeuralNetwork"),
 			.layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0) } },
 			.custom = { .customData = &neuralNetworkDraw } })
@@ -552,6 +602,7 @@ private:
 public:
 	RedesNeuraisFrame(Settings& settings): settings(settings)
 	{
+		ClayRaylib_SetScale(settings.uiScale);
 		neuralNetwork = new NeuralNetwork();
 		neuralNetworkDraw.draw = paintNeuralNetwork;
 		neuralNetworkDraw.context = neuralNetwork;
@@ -566,7 +617,7 @@ public:
 			if(std::filesystem::exists(pathFromUtf8(fileName), error))
 			{
 				neuralNetwork->loadFromFile(fileName);
-				neuralNetwork->keepRightOf(PanelRight);
+				neuralNetwork->keepRightOf(panelRight());
 				loadSamples(fileName);
 				// a vista gravada é a desta rede se ela foi a última aberta
 				if(settings.fileName == fileName)
@@ -595,16 +646,19 @@ public:
 				renderScale = getRenderScale();
 				Clay_ResetMeasureTextCache();
 			}
-			Vector2 position = GetMousePosition();
-			Clay_SetLayoutDimensions(Clay_Dimensions{ (float)GetScreenWidth(),
-				(float)GetScreenHeight() });
+			// antes do layout, que é feito na escala nova
+			bool scaled = updateScale();
+			Vector2 position = ClayRaylib_ToLayout(GetMousePosition());
+			Clay_SetLayoutDimensions(ClayRaylib_GetLayoutDimensions());
 			Clay_SetPointerState(Clay_Vector2{ position.x, position.y }, input::mouseDown());
 			update();
 			Clay_BeginLayout();
 			layout();
 			Clay_RenderCommandArray commands = Clay_EndLayout();
 			ui::endFrame();
-			bool changed = updateDialogs();
+			// o mouse sobre os controles só é conferido na escala nova no quadro
+			// seguinte
+			bool changed = updateDialogs() || scaled;
 			// cliques são tratados durante o layout, então o que mudaram só aparece
 			// no quadro seguinte: desenha mais um sem esperar por evento
 			if(changed || input::mousePressed() || input::mouseReleased() ||
@@ -619,6 +673,7 @@ public:
 			updateTitle();
 			captureWindow(settings);
 		}
+		settings.uiScale = ClayRaylib_GetScale();
 		settings.fileName = fileName;
 		settings.zoom = neuralNetwork->getZoom();
 		settings.pan = neuralNetwork->getPan();

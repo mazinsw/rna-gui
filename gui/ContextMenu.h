@@ -82,7 +82,8 @@ public:
 		visible = false;
 	}
 	/**
-	 * Abre o menu do nó ou da conexão, position é o canto do menu na janela
+	 * Abre o menu do nó ou da conexão, position é o canto do menu na janela em
+	 * unidades da interface
 	 */
 	void show(NeuralNetwork * network, Node * node, Edge * edge, Vector2 position)
 	{
@@ -107,8 +108,9 @@ public:
 		Vector2 offset = position;
 		if(data.found)
 		{
-			float right = GetScreenWidth() - data.boundingBox.width - 8;
-			float bottom = GetScreenHeight() - data.boundingBox.height - 8;
+			Clay_Dimensions window = ClayRaylib_GetLayoutDimensions();
+			float right = window.width - data.boundingBox.width - 8;
+			float bottom = window.height - data.boundingBox.height - 8;
 			offset.x = offset.x > right ? right : offset.x;
 			offset.y = offset.y > bottom ? bottom : offset.y;
 		}

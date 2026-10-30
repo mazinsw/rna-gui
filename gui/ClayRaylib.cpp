@@ -8,6 +8,8 @@
 #include <stdlib.h>
 
 static void* clayMemory = NULL;
+// pixels da janela por unidade da interface
+static float scale = 1;
 // o raylib exige strings terminadas em '\0' e o Clay entrega fatias
 static std::string textBuffer;
 
@@ -27,11 +29,21 @@ static Color toColor(Clay_Color color)
 	return result;
 }
 
+/**
+ * Texto medido com a fonte do tamanho desenhado, em unidades da interface
+ */
+static Vector2 measure(const char* text, uint16_t fontSize, uint16_t letterSpacing)
+{
+	float size = fontSize * scale;
+	Vector2 measured = MeasureTextEx(getFont(size), text, size, letterSpacing * scale);
+	return Vector2{ measured.x / scale, measured.y / scale };
+}
+
 static Clay_Dimensions measureText(Clay_StringSlice text, Clay_TextElementConfig* config,
 	void* userData)
 {
-	Vector2 size = MeasureTextEx(getFont(config->fontSize), terminate(text.chars, text.length),
-		config->fontSize, config->letterSpacing);
+	Vector2 size = measure(terminate(text.chars, text.length), config->fontSize,
+		config->letterSpacing);
 	Clay_Dimensions dimensions = { size.x, size.y };
 	return dimensions;
 }
@@ -46,7 +58,7 @@ void ClayRaylib_Initialize()
 	uint32_t size = Clay_MinMemorySize();
 	clayMemory = malloc(size);
 	Clay_Arena arena = Clay_CreateArenaWithCapacityAndMemory(size, clayMemory);
-	Clay_Dimensions dimensions = { (float)GetScreenWidth(), (float)GetScreenHeight() };
+	Clay_Dimensions dimensions = ClayRaylib_GetLayoutDimensions();
 	Clay_ErrorHandler errorHandler = { handleError, NULL };
 	Clay_Initialize(arena, dimensions, errorHandler);
 	Clay_SetMeasureTextFunction(measureText, NULL);
@@ -58,31 +70,39 @@ void ClayRaylib_Shutdown()
 	clayMemory = NULL;
 }
 
+/**
+ * Largura da borda na janela, em pixels inteiros para a linha ficar nítida
+ */
+static float borderWidth(uint16_t width)
+{
+	return width > 0 ? fmaxf(1, roundf(width * scale)) : 0;
+}
+
 static void drawBorder(Rectangle rect, const Clay_BorderRenderData& border)
 {
 	Color color = toColor(border.color);
-	const Clay_BorderWidth& width = border.width;
-	float radius = border.cornerRadius.topLeft;
-	bool uniform = width.left == width.right && width.left == width.top &&
-		width.left == width.bottom;
-	if(uniform && width.left > 0)
+	float left = borderWidth(border.width.left), right = borderWidth(border.width.right);
+	float top = borderWidth(border.width.top), bottom = borderWidth(border.width.bottom);
+	float radius = border.cornerRadius.topLeft * scale;
+	bool uniform = left == right && left == top && left == bottom;
+	if(uniform && left > 0)
 	{
 		if(radius > 0)
-			shapes::strokeRoundedRect(rect, radius, width.left, color);
+			shapes::strokeRoundedRect(rect, radius, left, color);
 		else
-			DrawRectangleLinesEx(rect, width.left, color);
+			DrawRectangleLinesEx(rect, left, color);
 		return;
 	}
-	if(width.left > 0)
-		DrawRectangleRec(Rectangle{ rect.x, rect.y, (float)width.left, rect.height }, color);
-	if(width.right > 0)
-		DrawRectangleRec(Rectangle{ rect.x + rect.width - width.right, rect.y,
-			(float)width.right, rect.height }, color);
-	if(width.top > 0)
-		DrawRectangleRec(Rectangle{ rect.x, rect.y, rect.width, (float)width.top }, color);
-	if(width.bottom > 0)
-		DrawRectangleRec(Rectangle{ rect.x, rect.y + rect.height - width.bottom,
-			rect.width, (float)width.bottom }, color);
+	if(left > 0)
+		DrawRectangleRec(Rectangle{ rect.x, rect.y, left, rect.height }, color);
+	if(right > 0)
+		DrawRectangleRec(Rectangle{ rect.x + rect.width - right, rect.y, right, rect.height },
+			color);
+	if(top > 0)
+		DrawRectangleRec(Rectangle{ rect.x, rect.y, rect.width, top }, color);
+	if(bottom > 0)
+		DrawRectangleRec(Rectangle{ rect.x, rect.y + rect.height - bottom, rect.width, bottom },
+			color);
 }
 
 void ClayRaylib_Render(Clay_RenderCommandArray commands)
@@ -91,14 +111,15 @@ void ClayRaylib_Render(Clay_RenderCommandArray commands)
 	{
 		Clay_RenderCommand* command = Clay_RenderCommandArray_Get(&commands, i);
 		Clay_BoundingBox box = command->boundingBox;
-		Rectangle rect = { roundf(box.x), roundf(box.y), roundf(box.width), roundf(box.height) };
+		Rectangle rect = { roundf(box.x * scale), roundf(box.y * scale), roundf(box.width * scale),
+			roundf(box.height * scale) };
 		switch(command->commandType)
 		{
 		case CLAY_RENDER_COMMAND_TYPE_RECTANGLE:
 		{
 			Clay_RectangleRenderData& data = command->renderData.rectangle;
 			if(data.cornerRadius.topLeft > 0)
-				shapes::fillRoundedRect(rect, data.cornerRadius.topLeft,
+				shapes::fillRoundedRect(rect, data.cornerRadius.topLeft * scale,
 					toColor(data.backgroundColor));
 			else
 				DrawRectangleRec(rect, toColor(data.backgroundColor));
@@ -110,9 +131,10 @@ void ClayRaylib_Render(Clay_RenderCommandArray commands)
 		case CLAY_RENDER_COMMAND_TYPE_TEXT:
 		{
 			Clay_TextRenderData& data = command->renderData.text;
-			DrawTextEx(getFont(data.fontSize),
+			float size = data.fontSize * scale;
+			DrawTextEx(getFont(size),
 				terminate(data.stringContents.chars, data.stringContents.length),
-				Vector2{ rect.x, rect.y }, data.fontSize, data.letterSpacing,
+				Vector2{ rect.x, rect.y }, size, data.letterSpacing * scale,
 				toColor(data.textColor));
 			break;
 		}
@@ -142,4 +164,33 @@ void ClayRaylib_Render(Clay_RenderCommandArray commands)
 			break;
 		}
 	}
+}
+
+void ClayRaylib_SetScale(float value)
+{
+	if(value == scale)
+		return;
+	scale = value;
+	// o Clay guarda a largura medida de cada texto, que muda com a escala
+	Clay_ResetMeasureTextCache();
+}
+
+float ClayRaylib_GetScale()
+{
+	return scale;
+}
+
+Clay_Dimensions ClayRaylib_GetLayoutDimensions()
+{
+	return Clay_Dimensions{ GetScreenWidth() / scale, GetScreenHeight() / scale };
+}
+
+Vector2 ClayRaylib_ToLayout(Vector2 point)
+{
+	return Vector2{ point.x / scale, point.y / scale };
+}
+
+float ClayRaylib_MeasureText(const std::string& text, uint16_t fontSize)
+{
+	return measure(text.c_str(), fontSize, 0).x;
 }

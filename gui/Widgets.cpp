@@ -1,6 +1,5 @@
 #include "Widgets.h"
 #include "Input.h"
-#include "Resources.h"
 #include <math.h>
 #include <string.h>
 
@@ -13,6 +12,38 @@ namespace ui
 	{
 		if(!input::mouseDown())
 			pressedId = 0;
+	}
+
+	bool commandDown()
+	{
+		// Cmd no macOS, Ctrl nos demais
+		return IsKeyDown(KEY_LEFT_SUPER) || IsKeyDown(KEY_RIGHT_SUPER) ||
+			IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+	}
+
+	float nextScale(float scale, int step)
+	{
+		static const float scales[] = { MinScale, 0.8f, 0.9f, 1, 1.1f, 1.25f, 1.5f, 1.75f,
+			MaxScale };
+		const int count = sizeof(scales) / sizeof(scales[0]);
+		// um tamanho fora da lista vai para o vizinho dele
+		if(step > 0)
+		{
+			for(int i = 0; i < count; i++)
+			{
+				if(scales[i] > scale + 0.001f)
+					return scales[i];
+			}
+		}
+		else if(step < 0)
+		{
+			for(int i = count - 1; i >= 0; i--)
+			{
+				if(scales[i] < scale - 0.001f)
+					return scales[i];
+			}
+		}
+		return scale;
 	}
 
 	Clay_TextElementConfig* textConfig(uint16_t fontSize, Clay_Color color,
@@ -214,13 +245,6 @@ static bool keyPressed(int key)
 	return IsKeyPressed(key) || IsKeyPressedRepeat(key);
 }
 
-static bool commandDown()
-{
-	// Cmd no macOS, Ctrl nos demais
-	return IsKeyDown(KEY_LEFT_SUPER) || IsKeyDown(KEY_RIGHT_SUPER) ||
-		IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
-}
-
 TextField::TextField()
 {
 	cursor = 0;
@@ -291,7 +315,7 @@ void TextField::moveCursorTo(float x)
 	{
 		pos = next(pos);
 		std::string prefix(text, 0, pos);
-		float width = MeasureTextEx(getFont(fontSize), prefix.c_str(), fontSize, 0).x;
+		float width = ClayRaylib_MeasureText(prefix, fontSize);
 		if(fabsf(offset - width) < bestDistance)
 		{
 			best = pos;
@@ -304,7 +328,7 @@ void TextField::moveCursorTo(float x)
 
 bool TextField::update()
 {
-	if(commandDown())
+	if(ui::commandDown())
 	{
 		if(IsKeyPressed(KEY_A))
 			selectAll();
@@ -356,7 +380,7 @@ bool TextField::update()
 	}
 	if(keyPressed(KEY_LEFT))
 	{
-		if(allSelected || commandDown())
+		if(allSelected || ui::commandDown())
 			cursor = 0;
 		else if(cursor > 0)
 			cursor = previous(cursor);
@@ -364,7 +388,7 @@ bool TextField::update()
 	}
 	if(keyPressed(KEY_RIGHT))
 	{
-		if(allSelected || commandDown())
+		if(allSelected || ui::commandDown())
 			cursor = text.size();
 		else if(cursor < text.size())
 			cursor = next(cursor);
@@ -388,7 +412,7 @@ void TextField::layout(Clay_ElementId id, uint16_t fontSize, float height, float
 	this->id = id;
 	this->fontSize = fontSize;
 	if(Clay_PointerOver(id) && input::mousePressed())
-		moveCursorTo(GetMousePosition().x);
+		moveCursorTo(ClayRaylib_ToLayout(GetMousePosition()).x);
 	CLAY({ .id = id,
 		.layout = { .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(height) },
 			.padding = { 8, 8, 0, 0 },

@@ -19,6 +19,9 @@ namespace ui
 	// títulos de grupo, legenda e dicas
 	const uint16_t CaptionFontSize = 12;
 	const float ButtonHeight = 26;
+	// limites do tamanho da interface, mudado com Ctrl + e Ctrl -
+	const float MinScale = 0.75f;
+	const float MaxScale = 2;
 	const Clay_Color WindowColor = { 236, 236, 236, 255 };
 	const Clay_Color TextColor = { 30, 30, 30, 255 };
 	const Clay_Color DisabledTextColor = { 160, 160, 160, 255 };
@@ -85,6 +88,17 @@ namespace ui
 	void endFrame();
 
 	/**
+	 * Cmd no macOS ou Ctrl nos demais está pressionado
+	 */
+	bool commandDown();
+
+	/**
+	 * Tamanho da interface seguinte, maior com step > 0 e menor com step < 0,
+	 * o mesmo nos limites
+	 */
+	float nextScale(float scale, int step);
+
+	/**
 	 * Configuração de texto com a fonte da interface
 	 */
 	Clay_TextElementConfig* textConfig(uint16_t fontSize = FontSize, Clay_Color color = TextColor,
@@ -131,8 +145,8 @@ namespace ui
 	template<class Body>
 	void dialog(Clay_String title, float width, Body body)
 	{
-		Clay_Sizing screen = { CLAY_SIZING_FIXED((float)GetScreenWidth()),
-			CLAY_SIZING_FIXED((float)GetScreenHeight()) };
+		Clay_Dimensions window = ClayRaylib_GetLayoutDimensions();
+		Clay_Sizing screen = { CLAY_SIZING_FIXED(window.width), CLAY_SIZING_FIXED(window.height) };
 		CLAY({ .id = CLAY_ID("DialogOverlay"),
 			.layout = { .sizing = screen,
 				.childAlignment = { CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_CENTER } },

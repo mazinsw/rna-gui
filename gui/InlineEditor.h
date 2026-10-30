@@ -4,7 +4,6 @@
 #include "Edge.h"
 #include "NeuralNetwork.h"
 #include "NeuronNode.h"
-#include "Resources.h"
 
 /**
  * Edita no lugar o peso de uma conexão ou o bias de um neurônio: Enter ou
@@ -97,20 +96,21 @@ public:
 	{
 		Rectangle label = network->toScreen(edge != NULL ? edge->getLabelBox() :
 			neuron->getBiasBox());
-		float width = label.width + 24;
+		// o rótulo fica na janela, o campo em unidades da interface
+		Vector2 center = ClayRaylib_ToLayout(Vector2{ origin.x + label.x + label.width / 2,
+			origin.y + label.y + label.height / 2 });
+		float width = ClayRaylib_ToLayout(Vector2{ label.width, 0 }).x + 24;
 		if(width < 84)
 			width = 84;
-		// a dica abaixo do campo pode ser mais larga que ele
-		float hintWidth = MeasureTextEx(getFont(ui::CaptionFontSize), "Enter aplica · Esc cancela",
-			ui::CaptionFontSize, 0).x + 16;
-		float outer = hintWidth > width ? hintWidth : width;
-		float x = origin.x + label.x + label.width / 2 - outer / 2;
-		float y = origin.y + label.y + label.height / 2 - 13;
+		// centralizado no rótulo, a dica abaixo do campo pode ser mais larga que ele
 		CLAY({ .id = CLAY_ID("Editor"),
-			.layout = { .sizing = { CLAY_SIZING_FIXED(outer), CLAY_SIZING_FIT(0) },
+			.layout = { .sizing = { CLAY_SIZING_FIT(0), CLAY_SIZING_FIT(0) },
 				.childGap = 6, .childAlignment = { CLAY_ALIGN_X_CENTER, CLAY_ALIGN_Y_TOP },
 				.layoutDirection = CLAY_TOP_TO_BOTTOM },
-			.floating = { .offset = { x, y }, .zIndex = 15, .attachTo = CLAY_ATTACH_TO_ROOT } })
+			.floating = { .offset = { center.x, center.y - 13 }, .zIndex = 15,
+				.attachPoints = { .element = CLAY_ATTACH_POINT_CENTER_TOP,
+					.parent = CLAY_ATTACH_POINT_LEFT_TOP },
+				.attachTo = CLAY_ATTACH_TO_ROOT } })
 		{
 			CLAY({ .layout = { .sizing = { CLAY_SIZING_FIXED(width), CLAY_SIZING_FIT(0) } } })
 			{
