@@ -10,6 +10,7 @@ make            # build/NeuralNetwork (interface), build/rna (linha de comando) 
                 # build/RedesNeurais (console)
 make run        # abre a interface
 make test       # executa o console com testes_treinamento.txt
+make check      # testes do treino: derivadas, convergência, arquivos
 ```
 
 Se o sistema não tiver raylib 5.5 ou superior, `make raylib` baixa e compila o raylib 6.2 em
@@ -56,67 +57,67 @@ Ao sair, a posição, o tamanho e a maximização da janela, o tamanho da interf
 deslocamento da vista ficam em `estado.txt`, na mesma pasta. A janela volta como estava, centralizada se o monitor dela não estiver
 mais ligado, e a vista volta se a rede aberta ao iniciar for a última que estava aberta.
 
-O arquivo é gravado no formato 1.1 da versão Windows original enquanto nenhum bias é usado. Com bias
-em algum neurônio, uma entrada de bias ou um neurônio ReLU ou softmax ele passa para o formato 1.2,
-que a versão original não abre. A interface lê os dois.
+A rede é gravada no formato 2.0: a quantidade de entradas, o lado da imagem que elas formam e, para
+cada camada, a quantidade de neurônios, a função, os pesos e os bias, em float. A interface também
+abre os formatos 1.1 e 1.2, da rede em grafo das versões anteriores, quando os nós estão em camadas:
+cada ligação vai de uma camada à seguinte, os neurônios de uma camada têm a mesma função e as saídas
+vêm da última. A ligação ausente vira peso 0 e a entrada de bias é somada ao bias dos neurônios
+que ela alimenta. A rede que não está em camadas não abre, e a mensagem diz a ligação que pula uma
+camada. A versão Windows original não abre o formato 2.0.
 
 ### Editando e executando
 
-Os botões ficam num painel flutuante no canto da área de edição. Clique em um nó e depois em outro
-para conectá-los. A conexão começa com peso aleatório entre -1 e 1, e a conexão com uma saída com
-peso 1.
+A rede é feita de camadas densas: cada neurônio recebe todas as saídas da camada anterior, a
+primeira recebe as entradas, e os neurônios da última são as saídas. As camadas ficam em colunas,
+da esquerda para a direita, cada uma com o nome em cima ("Oculta 1 · ReLU · 16"). Os botões ficam
+num painel flutuante no canto da área de edição:
 
-- Segure Shift e arraste no fundo para criar uma camada: um nó a cada 120 pixels arrastados, para
-  baixo ou para cima, Esc cancela. Na rede sem entradas a camada é de entradas, depois delas de
-  neurônios; começando sobre uma camada existente os nós entram nela, com o tipo dela, que é como
-  se acrescentam saídas pelo arraste. Ao soltar, cada nó da camada anterior é ligado a cada nó novo
-  e cada nó novo a cada nó da camada seguinte. Uma camada criada entre duas remove as conexões
-  diretas entre elas.
-- "Neurônio", "Entrada" e "Saída" adicionam o nó abaixo do último da camada dele, já ligado às
-  camadas vizinhas, e redistribuem a camada com espaçamento igual no centro vertical da rede. O
-  neurônio vai na camada do neurônio selecionado, ou na última com neurônios; a entrada na primeira
-  camada com entradas e a saída na última com saídas. Sem essa camada o botão cria uma: a de
-  entradas antes de todas, a de saídas depois de todas e a de neurônios depois das entradas. O nó
-  novo fica selecionado, então cliques seguidos continuam na mesma camada.
-- Clique direito (ou duplo) no neurônio: menu com a função de ativação e "Excluir neurônio". Na
-  entrada o menu escolhe o tipo, dado ou bias, e na conexão ou na saída exclui.
+- "Entrada" acrescenta uma entrada, ligada a todos os neurônios da primeira camada.
+- "Neurônio" acrescenta um neurônio na camada selecionada (clique num neurônio ou no nome da
+  camada) ou, sem seleção, na última oculta; sem oculta cria uma.
+- "Camada" cria uma camada oculta de 2 neurônios logísticos depois da selecionada ou antes da de
+  saída. "Saída" acrescenta um neurônio na camada de saída.
+- Os pesos e os bias novos são sorteados, menores quanto mais ligações a camada tem.
+- Clique direito (ou duplo) num neurônio ou no nome da camada: menu com a função de ativação da
+  camada, "Excluir neurônio" e "Excluir camada". Nas entradas o menu as transforma numa imagem de 8
+  x 8, 16 x 16 ou 28 x 28 pixels, ou de volta em entradas soltas, e exclui a entrada.
 - Peso e bias: o primeiro clique seleciona e o segundo (ou um clique duplo) edita no lugar. Enter
-  ou clicar fora aplica, Esc cancela. Com mais de 100 conexões os rótulos de peso somem para não
-  cobrir a rede: clique na linha da conexão para ver o peso dela.
-- Delete exclui o nó ou a conexão selecionada.
-- Arrastar um nó, ou o início de uma camada nova, alinha o centro dele aos pontos da grade. A menos de 8
-  pixels do x de outro nó ele entra na camada desse nó, e do y, na linha dele, com prioridade sobre
-  a grade. Uma linha azul mostra o alinhamento com outro nó e uma tracejada, com a grade. Segure Alt
-  (Option no Mac) para mover sem alinhar.
-- "Reorganizar" refaz a posição de todos os nós em camadas: as entradas na primeira, cada neurônio
-  logo depois do nó mais distante que o alimenta e as saídas na última. Dentro da camada os nós
-  ficam na altura média dos que os alimentam, para as conexões cruzarem menos. As entradas de uma
-  imagem (veja [Reconhecendo dígitos](#reconhecendo-dígitos)) ficam em quadrado, na ordem dos
-  pixels. Depois centraliza a rede com o zoom que a mostra inteira, no máximo 100%.
-- A roda do mouse aproxima e afasta a rede em volta do ponteiro, de 25% a 400%. Arraste o fundo
-  vazio sem Shift, ou qualquer ponto com o botão do meio, para mover a rede na tela. Abrir um
-  arquivo arrastado volta a vista para 100%, ou para o zoom que mostra a rede inteira se ela não
-  cabe.
+  ou clicar fora aplica, Esc cancela. Com mais de 50 ligações numa camada os rótulos de peso
+  somem para não cobrir a rede: clique na linha para ver o peso dela.
+- Delete exclui a entrada, o neurônio ou a camada selecionada, Esc tira a seleção.
+- A roda do mouse aproxima e afasta a rede em volta do ponteiro, de 10% a 400%. Arraste o fundo
+  vazio, ou qualquer ponto com o botão do meio, para mover a rede na tela. "Ajustar à janela"
+  centraliza a rede com o zoom que a mostra inteira, no máximo 100%, como ao abrir um arquivo.
 - Ctrl + e Ctrl - (Cmd no Mac) aumentam e diminuem o tamanho da interface, de 75% a 200%: botões,
   menus, diálogos, dicas, status e legenda. Ctrl 0 volta para 100%. A rede mantém o tamanho, que
   muda com a roda do mouse.
 
+Redes grandes ficam mais simples na tela:
+
+- Uma camada de mais de 32 neurônios vira um bloco com o mapa dos pesos: uma linha por neurônio e
+  uma coluna por entrada, em azul os negativos e em vermelho os positivos. Depois de uma imagem
+  cada neurônio vira um ladrilho com os pesos dele na forma da imagem, o que mostra os traços a que
+  ele responde.
+- Entradas de uma imagem de até 16 x 16 aparecem como uma grade de pixels; maiores, como um quadro
+  com a imagem. Mais de 32 entradas soltas viram um bloco.
+- Entre colunas com muitas ligações, ou com um bloco, as ligações viram uma faixa.
+
 Cada neurônio tem um bias (`b`, mostrado acima dele) somado à entrada da função de ativação, que faz
-o papel do limiar negativo. Ele começa aleatório e é treinado junto com os pesos. Para modelar o
-bias como entrada, use uma entrada do tipo bias: ela vale sempre 1 e o peso da conexão é o bias.
+o papel do limiar negativo. Ele é treinado junto com os pesos.
 
 As funções de ativação são linear, degrau, bipolar, logística, hiperbólica, ReLU (o próprio valor
-quando positivo, senão 0) e softmax. A softmax é calculada junto para todos os neurônios softmax da
-rede: cada um dá `e^x` dividido pela soma dos `e^x` de todos, então os valores somam 1 e o maior é
-a classe escolhida. No treino o erro do neurônio softmax é a diferença para o alvo, o da entropia
-cruzada, que não some quando a saída está longe do alvo como na logística.
+quando positivo, senão 0) e softmax. A softmax é calculada para os neurônios da camada juntos: cada
+um dá `e^x` dividido pela soma dos `e^x` de todos, então os valores somam 1 e o maior é a classe
+escolhida. No treino o erro da softmax na saída é a diferença para o alvo, o da entropia cruzada,
+que não some quando a saída está longe do alvo como na logística.
 
-A cor e a espessura de cada conexão mostram a influência dela na saída, do cinza ao vermelho: na
-edição pelo peso, na execução pelo peso vezes o valor que passa por ela, relativos à maior da rede.
+A cor e a espessura de cada ligação mostram a influência dela na saída, do cinza ao vermelho: na
+edição pelo peso, na execução pelo peso vezes o valor que passa por ela, relativos à maior da
+camada.
 
-"Executar" liga o modo de execução: clique nas entradas para alternar o valor entre 0 e 1 e nas
-saídas para alternar o alvo. Cada neurônio mostra o valor calculado e a saída fica verde quando é
-igual ao alvo.
+"Executar" liga o modo de execução: clique nas entradas para alternar o valor entre 0 e 1 e nos
+alvos das saídas para alterná-los. Cada neurônio mostra o valor calculado e a saída fica verde
+quando é igual ao alvo.
 
 "Treinar" guarda a combinação da tela, os valores das entradas e os alvos das saídas, como uma
 amostra, e ajusta os pesos e os bias por retropropagação até as saídas de todas as amostras
@@ -126,19 +127,24 @@ Assim cada linha da tabela verdade é ensinada com um clique sem desfazer as ant
 entradas e os alvos e clique em "Treinar", linha a linha. Treinar de novo uma combinação já
 guardada troca os alvos dela. O treino parte dos pesos atuais e cada peso e bias tem um passo próprio
 (Rprop), que cresce enquanto o sentido do ajuste se mantém e cai à metade quando ele troca; a rede
-termina com os melhores pesos encontrados, nunca pior do que começou. A conexão que é a única de uma
-saída repassa o valor do nó e o peso dela fica fixo; numa saída ligada a vários nós, que soma os
-valores deles, os pesos também são treinados.
+termina com os melhores pesos encontrados, nunca pior do que começou.
 
-- "Sortear pesos" sorteia de novo, entre -1 e 1, os bias e os pesos treinados, para recomeçar
-  quando o treino não chega ao alvo ou a rede tem valores inválidos. As amostras continuam guardadas.
-- "Zerar amostras" esquece as amostras, e o próximo treino usa só a combinação da tela. Elas também
-  são esquecidas ao adicionar ou excluir uma entrada ou saída e ao trocar o tipo de uma entrada.
+O treino roda em segundo plano: o status mostra a iteração e o erro, ou a época e o acerto, e o
+botão vira "Parar treino", que interrompe e fica com os pesos até ali. Com mais de 2000 amostras,
+como as do MNIST, cada passo com todas elas seria lento e o treino passa a ser por épocas: em cada
+uma as amostras são embaralhadas e os pesos andam um pouco a cada lote de 128 (SGD, taxa 0,1), por
+10 épocas.
+
+- "Sortear pesos" sorteia de novo os bias e os pesos, para recomeçar quando o treino não chega ao
+  alvo ou a rede tem valores inválidos. As amostras continuam guardadas.
+- "Zerar amostras" esquece as amostras e as imagens arrastadas para o treino, e o próximo treino
+  usa só a combinação da tela. As amostras também são esquecidas ao mudar a quantidade de entradas
+  ou de saídas.
 - "Salvar" grava as amostras ao lado da rede, `rede.amostras.txt` para `rede.bin`, no mesmo bloco
   dos arquivos do console: `amostras` e a quantidade, depois, para cada amostra, os valores das
-  entradas na ordem dos nós (a entrada de bias vale 1) e `saidas` com os alvos, com ponto decimal.
-  Sem amostras o arquivo é apagado. Ao abrir a rede ele é lido de volta; se não combina com a rede,
-  ela abre sem amostras.
+  entradas e `saidas` com os alvos, com ponto decimal. Sem amostras o arquivo é apagado. Ao abrir
+  a rede ele é lido de volta; se não combina com a rede, ela abre sem amostras. As imagens
+  arrastadas para o treino não são gravadas.
 - "Parar" volta à edição.
 
 ## Exemplos
@@ -161,10 +167,10 @@ OR, um AND e a saída `OR - AND - 0,5`.
 
 `exemplos/digitos.bin` é uma versão reduzida da rede do notebook
 [Reconhecendo Números usando Dataset MNIST](https://github.com/clebrw/Reconhecendo-Numeros-usando-Dataset-MNIST),
-que usa 784 entradas (28 x 28 pixels), 256 neurônios ReLU e 10 softmax. Aqui são 64 entradas em
-quadrado (8 x 8 pixels), 10 neurônios ReLU, 10 softmax e 10 saídas, a de cima para o dígito 0 e a de
-baixo para o 9. Ao lado ficam as 100 amostras, `digitos.amostras.txt`, feitas das imagens da pasta
-`exemplos/digitos`: 10 de cada dígito, com o dígito no começo do nome (`7_3.png`).
+que usa 784 entradas (28 x 28 pixels), 256 neurônios ReLU e 10 softmax. Aqui são 64 entradas numa
+imagem de 8 x 8 pixels, 10 neurônios ReLU e 10 softmax, que são as saídas: a de cima para o dígito
+0 e a de baixo para o 9. Ao lado ficam as 100 amostras, `digitos.amostras.txt`, feitas das imagens
+da pasta `exemplos/digitos`: 10 de cada dígito, com o dígito no começo do nome (`7_3.png`).
 
 1. Arraste `digitos.bin` para a janela, clique em "Executar" e em "Treinar". As 100 amostras são
    aprendidas em poucas dezenas de iterações.
@@ -175,36 +181,38 @@ baixo para o 9. Ao lado ficam as 100 amostras, `digitos.amostras.txt`, feitas da
 3. Para ensinar uma imagem reconhecida errado, clique no alvo da saída certa, se o nome não o
    marcou, e em "Treinar". Ela entra nas amostras e "Salvar" a grava com as outras.
 
+Treinada com as 100 imagens, a rede acerta em média 66% dos 500 dígitos de `exemplos/digitos28`,
+que nunca viu (de 53% a 70% em 10 sorteios dos pesos).
+
 ### Uma entrada por pixel
 
 `exemplos/digitos28.bin` tem uma entrada para cada pixel das imagens do MNIST: 784 entradas (28 x 28),
-16 neurônios ReLU, 10 softmax e 10 saídas, com 12.714 conexões. Ao lado ficam 500 amostras, feitas
-das imagens da pasta `exemplos/digitos28`: os 50 primeiros exemplos de cada dígito do conjunto de
-treino do MNIST. Os 100 dígitos de `exemplos/digitos`, do conjunto de teste, não estão entre elas e
-servem para testar a rede com dígitos que ela nunca viu.
+16 neurônios ReLU e 10 softmax, com 12.704 pesos. Ao lado ficam 500 amostras, feitas das imagens da
+pasta `exemplos/digitos28`: os 50 primeiros exemplos de cada dígito do conjunto de treino do MNIST.
+Os 100 dígitos de `exemplos/digitos`, do conjunto de teste, não estão entre elas e servem para
+testar a rede com dígitos que ela nunca viu.
 
-O uso é o mesmo, e a grade de entradas mostra o dígito arrastado como uma imagem. "Treinar" leva de 1 a
-3 segundos, com a janela parada enquanto isso.
+O uso é o mesmo, e o quadro das entradas mostra o dígito arrastado como uma imagem. "Treinar" leva
+cerca de um décimo de segundo.
 
-A rede treinada acerta cerca de 65% dos 100 dígitos de teste (de 62% a 72%, conforme os pesos
-sorteados). Mais pixels não querem dizer mais acertos: com as mesmas 500 imagens reduzidas a 8 x 8 uma
-rede como a de `digitos.bin` acerta cerca de 75%, porque a média dos pixels ignora pequenas diferenças
-de posição e de espessura do traço, e com poucos exemplos as 784 entradas deixam a rede decorar
-detalhes de cada imagem. O que mais aumenta o acerto é a quantidade de exemplos.
+A rede treinada acerta em média 78% dos 100 dígitos de teste (de 75% a 80% em 10 sorteios dos
+pesos). Com as mesmas 500 imagens reduzidas a 8 x 8, uma rede como a de `digitos.bin` acerta 75%:
+a média dos pixels ignora pequenas diferenças de posição e de espessura do traço, e os pixels a
+mais ajudam pouco com poucos exemplos. O que mais aumenta o acerto é a quantidade de exemplos.
 
 ### Imagens arrastadas
 
-Uma imagem pode ser arrastada em qualquer rede cujas entradas de dado formem um quadrado (64 para 8 x
-8). Os pixels vão para as entradas na ordem de leitura delas, de cima para baixo e da esquerda para a
-direita. Antes a imagem é reduzida como no MNIST: o fundo claro é invertido, para o traço escuro no
+Uma imagem pode ser arrastada em qualquer rede cujas entradas formem uma imagem (clique direito
+nas entradas para escolher o tamanho). Os pixels vão para as entradas linha a linha, de cima para
+baixo. Antes a imagem é reduzida como no MNIST: o fundo claro é invertido, para o traço escuro no
 papel ficar claro como no dataset, o contraste vai de 0 a 1 e o traço é recortado, centralizado e
 reduzido pela média dos pixels para dentro de uma borda vazia de 1/7 do lado, 1 pixel em 8 x 8 e 4
 em 28 x 28. Os valores ficam com 3 casas. O dígito no começo do nome
 do arquivo marca o alvo da saída dele; sem ele todos os alvos ficam em 0. As imagens são lidas pelo
 raylib: PNG sempre, os outros formatos só se o raylib foi compilado com eles.
 
-Com 10 exemplos de cada dígito a rede acerta todos os que aprendeu, mas só cerca de 6 em 10 dígitos
-que nunca viu. O notebook chega a 95% porque treina com as 60 mil imagens do MNIST.
+Arrastar uma pasta de imagens com o dígito no começo do nome faz o treino usar as imagens dela no
+lugar das amostras.
 
 `make digitos` refaz as duas redes e as amostras a partir das imagens das pastas, com a mesma redução
 das imagens arrastadas para a janela.
@@ -234,31 +242,33 @@ figura:
 
 ## Linha de comando
 
-`build/rna` treina e usa pelo terminal as redes da interface (`.bin`), com as amostras gravadas ao
-lado delas, usando o mesmo código da interface, sem abrir a janela:
+`build/rna` treina e usa pelo terminal as redes da interface (`.bin`), com o mesmo código da
+interface, sem abrir a janela:
 
 ```
-build/rna treinar <rede.bin> [saida.bin]
+build/rna treinar <rede.bin> [dados] [--epocas N] [--saida saida.bin]
 build/rna reconhecer <rede.bin> <imagem>...
 ```
 
-- `treinar` faz o mesmo que o botão "Treinar" com as amostras gravadas e grava a rede treinada, com
-  as amostras ao lado, em `saida.bin` ou, sem ele, na própria rede. Termina com 0 quando as saídas
-  chegam aos alvos e com 2 quando não chegam; rodar de novo continua o treino.
+- `treinar` faz o mesmo que o botão "Treinar" e grava a rede treinada em `saida.bin` ou, sem ele,
+  na própria rede. Sem `dados` usa as amostras gravadas ao lado da rede e as grava ao lado da
+  saída; `dados` é uma pasta de imagens com o dígito no começo do nome ou as imagens do MNIST (veja
+  abaixo). Com mais de 2000 amostras treina por épocas, 10 sem `--epocas`, e mostra o acerto de
+  cada uma. Termina com 0 quando as saídas chegam aos alvos ou as épocas terminam e com 2 quando
+  não; rodar de novo continua o treino.
 - `reconhecer` mostra, para cada imagem, a saída de maior valor e o valor dela, como ao arrastar a
   imagem para a janela. Com o dígito no começo do nome do arquivo mostra o esperado quando erra e,
   com mais de uma imagem, os acertos.
 
 ```
-$ build/rna treinar exemplos/digitos28.bin treinada.bin
-Treinado com 500 amostras em 52 iterações: erro de 923,21 para 0,31.
+$ build/rna treinar exemplos/digitos28.bin --saida treinada.bin
+Treinado com 500 amostras em 38 iterações: erro de 896,88 para 1,14.
 Rede salva em treinada.bin.
 $ build/rna reconhecer treinada.bin exemplos/digitos/*.png
 0_0.png: 0 (1)
+0_4.png: 6 (1), esperado 0
 ...
-7_3.png: 9 (0,51), esperado 7
-...
-Acertos: 65 de 100 (65%)
+Acertos: 79 de 100 (79%)
 ```
 
 ## Console
@@ -289,8 +299,15 @@ amostras (quantidade de amostras)
 ... uma vez por amostra
 ```
 
-O console não tem bias no neurônio e só treina os pesos: o bias é uma entrada que vale sempre 1 (ou
--1) e o peso dela. Exemplo, um AND com o peso do bias de um OR:
+O console treina a rede em camadas, como a interface: cada neurônio fica uma camada depois do mais
+alto que o alimenta, cada ligação precisa ir de uma camada à seguinte, os neurônios de uma camada
+precisam ter a mesma função e as saídas vêm da última. A ligação ausente entre camadas vale 0 e
+também é treinada; as que o treino cria aparecem no fim das ligações da rede treinada. A rede fora
+desse formato é recusada com o motivo.
+
+O console não tem bias no neurônio: o bias é uma entrada que vale sempre 1 (ou -1) e o peso dela.
+A entrada que liga além da primeira camada, como a do bias no `xor.txt`, precisa ter o mesmo valor
+em todas as amostras; o treino ajusta o peso dela. Exemplo, um AND com o peso do bias de um OR:
 
 ```
 1 3 4
@@ -325,13 +342,14 @@ Rede treinada:
 1 3 4
 1 degrau
 
-entrada  1 0.76840000000000008 1
-entrada  2 0.73159999999999992 1
-entrada  3 0.73159999999999992 1
+entrada  1 0.7684001 1
+entrada  2 0.7315999 1
+entrada  3 0.7315999 1
 saida    1
 
 amostras 4
 ...
 ```
 
-O treino é o mesmo da interface e da linha de comando, do diretório `training/`.
+O treino é o mesmo da interface e da linha de comando, do diretório `training/`, com os pesos em
+float.

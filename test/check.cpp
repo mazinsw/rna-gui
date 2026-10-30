@@ -6,13 +6,11 @@
  * uso: check [pasta do MNIST]
  */
 #include "../training/Dataset.h"
-#include "../training/Graph.h"
 #include "../training/Network.h"
 #include "../training/Trainer.h"
 #include <chrono>
 #include <cmath>
 #include <filesystem>
-#include <map>
 #include <random>
 #include <stdio.h>
 #include <string>
@@ -148,53 +146,18 @@ static int converged(const Dataset& samples, const std::vector<int>& sizes, int 
 }
 
 /**
- * Compara as saídas da rede em grafo com as da importada em camadas, com
- * entradas sorteadas
+ * Lê a rede em grafo do formato 1.x, já treinada, e confere a tabela-verdade
+ * dela
  */
-static void checkImport(const std::string& path)
+static void checkImport(const std::string& name, const std::vector<float>& table)
 {
-	std::map<std::string, std::vector<float> > truth = { { "and.bin", { 0, 0, 0, 1 } },
-		{ "or.bin", { 0, 1, 1, 1 } }, { "xor.bin", { 0, 1, 1, 0 } } };
-	std::string name = std::filesystem::path(path).filename().string();
 	try
 	{
-		Graph graph = Graph::load(path);
-		Network network = Network::load(path);
-		std::mt19937 random(3);
-		std::uniform_real_distribution<float> uniform(0, 1);
-		double worst = 0;
-		for(int sample = 0; sample < 20; sample++)
-		{
-			std::vector<float> input;
-			for(Graph::Node& node : graph.nodes)
-			{
-				if(node.type != Graph::Input || node.biasInput)
-					continue;
-				// bits nas redes pequenas, como na interface
-				node.value = network.inputs < 16 ? (float)(int)(uniform(random) * 2) : uniform(random);
-				input.push_back((float)node.value);
-			}
-			graph.execute();
-			std::vector<float> output = network.run(input);
-			size_t o = 0;
-			for(Graph::Node& node : graph.nodes)
-			{
-				if(node.type != Graph::Output)
-					continue;
-				worst = std::max(worst, o < output.size() ? fabs(node.value - output[o]) : 1.0);
-				o++;
-			}
-			if(o != output.size())
-				worst = 1;
-		}
-		check(worst < 1e-4, "importa " + name + " com as saídas da rede em grafo (diferença " +
-			std::to_string(worst) + ")");
-		// as redes antigas dos exemplos já estavam treinadas
-		std::vector<float> table = truth[name];
-		bool right = network.outputs() == 1;
+		Network network = Network::load("test/legacy/" + name);
+		bool right = network.inputs == 2 && network.outputs() == 1;
 		for(int i = 0; right && i < 4; i++)
 			right = network.run({ (float)(i / 2), (float)(i % 2) })[0] == table[i];
-		check(right, "a " + name + " importada calcula a tabela-verdade");
+		check(right, "importa " + name + " do formato 1.x com a tabela-verdade");
 	}
 	catch (const std::exception& e)
 	{
@@ -297,8 +260,9 @@ int main(int argc, char *argv[])
 		Trainer::Result result = trainer.train(digits, samples);
 		check(result.status == Trainer::Trained, "dígitos 8 x 8 chegam aos alvos em " +
 			std::to_string(result.steps) + " iterações");
-		for(const char *name : { "and", "or", "xor" })
-			checkImport(std::string("test/legacy/") + name + ".bin");
+		checkImport("and.bin", { 0, 0, 0, 1 });
+		checkImport("or.bin", { 0, 1, 1, 1 });
+		checkImport("xor.bin", { 0, 1, 1, 0 });
 		checkFiles();
 		if(argc > 1)
 			checkMnist(argv[1]);

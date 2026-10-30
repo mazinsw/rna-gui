@@ -84,8 +84,7 @@ RAYLIB_CHECK  := pkg-config --atleast-version=5.5 raylib
 endif
 
 # rede, execução e treino, sem o raylib
-TRAINING_SRCS := training/Graph.cpp training/Training.cpp training/Network.cpp \
-                 training/Dataset.cpp training/Trainer.cpp
+TRAINING_SRCS := training/Network.cpp training/Dataset.cpp training/Trainer.cpp
 CLI_SRCS  := $(TRAINING_SRCS) console/main.cpp cli/Console.cpp
 GUI_SRCS  := $(TRAINING_SRCS) gui/main.cpp gui/ClayRaylib.cpp gui/Widgets.cpp gui/Input.cpp \
              gui/Platform.cpp gui/Resources.cpp gui/Draw.cpp gui/Number.cpp gui/NeuralNetwork.cpp \
