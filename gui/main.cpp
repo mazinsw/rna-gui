@@ -106,17 +106,25 @@ private:
 			break;
 		}
 	}
+	/**
+	 * Onde ficam os centros dos nós na área de edição: à direita do painel, com
+	 * espaço para o bias acima, os valores abaixo e o status
+	 */
+	Rectangle editArea()
+	{
+		Clay_ElementData canvas = Clay_GetElementData(CLAY_ID("NeuralNetwork"));
+		if(!canvas.found)
+			return Rectangle{ 0, 0, 0, 0 };
+		return Rectangle{ PanelRight + 40, 70, canvas.boundingBox.width - PanelRight - 100,
+			canvas.boundingBox.height - 180 };
+	}
 	void reorganizar()
 	{
 		editor.cancel();
 		menu.close();
-		Clay_ElementData canvas = Clay_GetElementData(CLAY_ID("NeuralNetwork"));
-		if(!canvas.found)
+		Rectangle area = editArea();
+		if(area.width <= 0)
 			return;
-		// centros dos nós à direita do painel, com espaço para o bias acima, os
-		// valores abaixo e o status
-		Rectangle area = { PanelRight + 40, 70, canvas.boundingBox.width - PanelRight - 100,
-			canvas.boundingBox.height - 180 };
 		int layers = neuralNetwork->arrange(area);
 		neuralNetwork->fitView(area);
 		if(layers == 0)
@@ -313,9 +321,9 @@ private:
 			status = "A rede tem um ciclo e não pode ser executada.";
 		else if(neuralNetwork->isMoving())
 			status = "Solte para posicionar. Segure " FREE_MOVE_KEY " para mover sem alinhar.";
-		else if(neuralNetwork->isAdding())
-			status = "Clique na área de edição para posicionar. Segure " FREE_MOVE_KEY
-				" para não alinhar, Esc cancela.";
+		else if(neuralNetwork->isDrawingLayer())
+			status = "Arraste para cima ou para baixo para mudar a quantidade. Solte para "
+				"adicionar, Esc cancela.";
 		else if(neuralNetwork->isConnecting())
 			status = "Clique em outro nó para conectar. Esc cancela, Delete exclui o nó.";
 		else if(neuralNetwork->getSelectedEdge() != NULL)
@@ -325,9 +333,11 @@ private:
 			status = "Clique de novo no bias para editar.";
 		else if(running)
 			status = "Clique nas entradas e nas saídas para alternar entre 0 e 1.";
+		else if(neuralNetwork->isEmpty())
+			status = "Segure Shift e arraste para baixo no fundo para criar as entradas.";
 		else
-			status = "Clique direito no neurônio para trocar a função. Clique no peso ou no bias "
-				"para selecionar e de novo para editar.";
+			status = "Shift + arrastar no fundo cria uma camada. Clique direito no neurônio para "
+				"trocar a função, clique no peso ou no bias para editar.";
 	}
 	/**
 	 * Painel flutuante com os botões empilhados
@@ -348,12 +358,12 @@ private:
 			ui::groupTitle(CLAY_STRING("ADICIONAR"));
 			if(ui::toolButton(CLAY_ID("AddNeuronio"), icons::Neuron, CLAY_STRING("Neurônio"),
 				!running))
-				neuralNetwork->addNeuron();
+				neuralNetwork->addNeuron(editArea());
 			if(ui::toolButton(CLAY_ID("AddEntrada"), icons::Input, CLAY_STRING("Entrada"),
 				!running))
-				neuralNetwork->addInput();
+				neuralNetwork->addInput(editArea());
 			if(ui::toolButton(CLAY_ID("AddSaida"), icons::Output, CLAY_STRING("Saída"), !running))
-				neuralNetwork->addOutput();
+				neuralNetwork->addOutput(editArea());
 			ui::separator(6);
 			if(ui::toolButton(CLAY_ID("Executar"), running ? icons::Stop : icons::Play,
 				running ? CLAY_STRING("Parar") : CLAY_STRING("Executar"), true,

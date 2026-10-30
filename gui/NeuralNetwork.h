@@ -70,11 +70,16 @@ private:
 	Request request;
 	Execution execution;
 	std::mt19937 random;
+	// camada arrastada com Shift: nós da prévia, ainda fora da rede, a partir
+	// do ponto pressionado
+	std::vector<Node *> layerNodes;
+	Point layerStart;
+	Node::Type layerType;
 private:
 	enum ActionState
 	{
 		ActionNone = 0,
-		ActionAdd,
+		ActionLayer,
 		ActionConnect
 	};
 	enum Snap
@@ -85,15 +90,62 @@ private:
 		// camada (coluna) ou linha de outro nó
 		SnapLayer
 	};
+	/**
+	 * Camada (coluna de nós) e as vizinhas imediatas, de cima para baixo
+	 */
+	struct Layer
+	{
+		std::vector<Node *> prev, nodes, next;
+	};
 private:
 	void selectNode(Node *node);
 	void selectEdge(Edge *edge);
 	void selectBias(NeuronNode *neuron);
-	void addNeuron(int x, int y);
-	void startAdd(Node *node);
 	void addEdge(Node *node);
-	void updateAddNeuron(int x, int y);
 	void updateAddEdge(int x, int y);
+
+	/**
+	 * Nós agrupados em camadas pelo x, da esquerda para a direita, cada uma de
+	 * cima para baixo
+	 */
+	std::vector<std::vector<Node *> > columns();
+
+	/**
+	 * Camada no x, vazia se não houver, e as vizinhas dela
+	 */
+	Layer layerAt(int x);
+
+	/**
+	 * Indica se a ligação automática entre camadas cabe: a saída não alimenta
+	 * nós e a entrada não é alimentada
+	 */
+	bool canLink(Node *first, Node *second);
+
+	/**
+	 * Conexão nova, com peso 1 para a saída e aleatório nas demais, se for
+	 * permitida
+	 */
+	void connect(Node *first, Node *second);
+	void connectAll(const std::vector<Node *>& sources, const std::vector<Node *>& targets);
+	void disconnectAll(const std::vector<Node *>& sources, const std::vector<Node *>& targets);
+
+	/**
+	 * Põe os nós na rede, na camada do x deles, ligados às camadas vizinhas: a
+	 * anterior alimenta cada um e cada um alimenta a posterior. Numa camada nova
+	 * entre duas, as conexões diretas entre elas são removidas.
+	 */
+	void addToLayer(const std::vector<Node *>& nodes);
+
+	/**
+	 * Adiciona um nó abaixo do último da camada do tipo e a redistribui no
+	 * centro vertical da rede; sem a camada, cria uma. Na rede vazia o nó fica
+	 * no centro da área.
+	 */
+	void addToColumn(Node::Type type, Rectangle area);
+	void startLayer(int x, int y);
+	void updateLayer(int x, int y);
+	void finishLayer();
+	void cancelLayer();
 	Node *neuronAt(int x, int y);
 	Node *valueAt(int x, int y);
 	NeuronNode *biasAt(int x, int y);
@@ -123,6 +175,7 @@ private:
 	void toggle(Node *node);
 	double randomWeight();
 	NeuronNode *newNeuron();
+	Node *newNode(Node::Type type);
 	void pressNode(Node *node, int x, int y);
 	void updateInfluence();
 
@@ -139,9 +192,9 @@ public:
 			{
 				actionState = ActionNone;
 			}
-			else if(actionState == ActionAdd)
+			else if(actionState == ActionLayer)
 			{
-				actionState = ActionNone;
+				cancelLayer();
 			}
 		}
 		// no teclado do Mac a tecla delete é o backspace
@@ -193,11 +246,14 @@ public:
 	/**
 	 * Botão esquerdo pressionado: no nó seleciona, arrasta e conecta (na
 	 * execução alterna a entrada ou o alvo da saída); no peso ou no bias o
-	 * primeiro clique seleciona e o segundo pede a edição
+	 * primeiro clique seleciona e o segundo pede a edição. Com Shift no fundo
+	 * começa a arrastar uma camada nova.
 	 */
 	void mouseDown(int x, int y);
 	void mouseUp(int x, int y)
 	{
+		if(actionState == ActionLayer)
+			finishLayer();
 		// um clique sem arrastar alterna o valor da entrada ou da saída
 		if(nodeToggle != NULL && abs(x - pressX) <= 3 && abs(y - pressY) <= 3)
 			toggle(nodeToggle);
@@ -230,9 +286,9 @@ public:
 		}
 		// o tremor do clique é medido na tela, o arraste do nó na rede
 		Point p = toWorld(x, y);
-		if(actionState == ActionAdd)
+		if(actionState == ActionLayer)
 		{
-			updateAddNeuron(p.x, p.y);
+			updateLayer(x, y);
 		}
 		else if (bDown)
 		{
@@ -299,9 +355,15 @@ public:
 public:
 	NeuralNetwork();
 	~NeuralNetwork();
-	void addNeuron();
-	void addInput();
-	void addOutput();
+
+	/**
+	 * Adiciona o nó na camada do tipo e o liga às camadas vizinhas; o neurônio
+	 * vai na camada do neurônio selecionado. A área, na área de edição, é onde
+	 * fica o primeiro nó da rede vazia.
+	 */
+	void addNeuron(Rectangle area);
+	void addInput(Rectangle area);
+	void addOutput(Rectangle area);
 
 	/**
 	 * Exclui o nó e as conexões dele
@@ -366,9 +428,10 @@ public:
 	Execution::TrainResult train();
 
 	/**
-	 * Indica se está posicionando um nó novo
+	 * Indica se uma camada nova está sendo arrastada com Shift
 	 */
-	bool isAdding();
+	bool isDrawingLayer();
+	bool isEmpty();
 
 	/**
 	 * Indica se um nó está sendo arrastado

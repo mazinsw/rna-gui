@@ -24,6 +24,8 @@
 #define ARRANGE_MAX_LAYER_SPACING 200
 #define ARRANGE_MIN_NODE_SPACING 120
 #define ARRANGE_MAX_NODE_SPACING 160
+// nós a menos disto no x ficam na mesma camada
+#define LAYER_TOLERANCE 30
 // limites do zoom e passo de cada volta da roda do mouse
 #define MIN_ZOOM 0.25f
 #define MAX_ZOOM 4.0f
@@ -122,6 +124,7 @@ NeuralNetwork::NeuralNetwork(): execution(neurons, edges), random(std::random_de
 	nodeToggle = NULL;
 	pressX = pressY = 0;
 	request = Request{ Request::None, NULL, NULL };
+	layerType = Node::TypeNeuron;
 }
 
 NeuralNetwork::~NeuralNetwork()
@@ -138,39 +141,28 @@ NeuronNode *NeuralNetwork::newNeuron()
 	return neuron;
 }
 
-void NeuralNetwork::startAdd(Node *node)
+Node *NeuralNetwork::newNode(Node::Type type)
 {
-	actionState = ActionAdd;
-	delete nodeAdd;
-	nodeAdd = node;
-	edgeAdd->setSecond(nodeAdd);
-	// sem linhas até o mouse posicionar o nó
-	snapX = snapY = SnapNone;
+	if(type == Node::TypeInput)
+		return new InputNode();
+	if(type == Node::TypeOutput)
+		return new OutputNode();
+	return newNeuron();
 }
 
-void NeuralNetwork::addNeuron()
+void NeuralNetwork::addNeuron(Rectangle area)
 {
-	startAdd(newNeuron());
+	addToColumn(Node::TypeNeuron, area);
 }
 
-void NeuralNetwork::addInput()
+void NeuralNetwork::addInput(Rectangle area)
 {
-	startAdd(new InputNode());
+	addToColumn(Node::TypeInput, area);
 }
 
-void NeuralNetwork::addOutput()
+void NeuralNetwork::addOutput(Rectangle area)
 {
-	startAdd(new OutputNode());
-}
-
-void NeuralNetwork::addNeuron(int x, int y)
-{
-	Node *node = nodeAdd;
-	node->setPosition(snapPosition(node, x, y));
-	neurons.push_back(node);
-	nodeAdd = newNeuron();
-	edgeAdd->setSecond(nodeAdd);
-	modified = true;
+	addToColumn(Node::TypeOutput, area);
 }
 
 void NeuralNetwork::paint(Rectangle bounds)
@@ -227,8 +219,8 @@ void NeuralNetwork::drawGuides(Rectangle bounds)
 	Node *node = NULL;
 	if(dragging)
 		node = nodeMoving;
-	else if(actionState == ActionAdd)
-		node = nodeAdd;
+	else if(actionState == ActionLayer && !layerNodes.empty())
+		node = layerNodes[0];
 	if(node == NULL)
 		return;
 	// por baixo das conexões e dos nós: azul na camada ou na linha de outro
@@ -380,19 +372,53 @@ void NeuralNetwork::updateInfluence()
 void NeuralNetwork::draw()
 {
 	updateInfluence();
+	bool drawingLayer = actionState == ActionLayer && !layerNodes.empty();
+	Layer layer;
+	if(drawingLayer)
+		layer = layerAt(layerStart.x);
+	// a camada nova arrastada entre duas esconde as conexões diretas que vai
+	// remover
+	std::vector<Edge *> visible;
 	std::vector<Edge *>::iterator ite;
 	for(ite = edges.begin(); ite != edges.end(); ite++)
+	{
+		if(drawingLayer && layer.nodes.empty() &&
+			std::find(layer.prev.begin(), layer.prev.end(), (*ite)->getFirst()) != layer.prev.end() &&
+			std::find(layer.next.begin(), layer.next.end(), (*ite)->getSecond()) != layer.next.end())
+			continue;
+		visible.push_back(*ite);
+	}
+	for(ite = visible.begin(); ite != visible.end(); ite++)
 		(*ite)->drawLine();
 	if(!bMoving && actionState == ActionConnect)
 		shapes::line(edgeAdd->getFirst()->getCenter(), nodeAdd->getCenter(), 2,
 			ui::toColor(ui::FaintColor));
-	for(ite = edges.begin(); ite != edges.end(); ite++)
-		(*ite)->drawLabel();
 	std::vector<Node *>::iterator it;
+	if(drawingLayer)
+	{
+		// conexões que a camada arrastada vai ganhar
+		Color faint = ui::toColor(ui::FaintColor);
+		for(it = layerNodes.begin(); it != layerNodes.end(); it++)
+		{
+			std::vector<Node *>::iterator itl;
+			for(itl = layer.prev.begin(); itl != layer.prev.end(); itl++)
+			{
+				if(canLink(*itl, *it))
+					shapes::line((*itl)->getCenter(), (*it)->getCenter(), 1.5f, faint);
+			}
+			for(itl = layer.next.begin(); itl != layer.next.end(); itl++)
+			{
+				if(canLink(*it, *itl))
+					shapes::line((*it)->getCenter(), (*itl)->getCenter(), 1.5f, faint);
+			}
+		}
+	}
+	for(ite = visible.begin(); ite != visible.end(); ite++)
+		(*ite)->drawLabel();
 	for(it = neurons.begin(); it != neurons.end(); it++)
 		(*it)->draw(running);
-	if(actionState == ActionAdd)
-		nodeAdd->draw(false);
+	for(it = layerNodes.begin(); it != layerNodes.end(); it++)
+		(*it)->draw(false);
 }
 
 Node *NeuralNetwork::neuronAt(int x, int y)
@@ -432,11 +458,6 @@ NeuronNode *NeuralNetwork::biasAt(int x, int y)
 			return (NeuronNode*)node;
 	}
 	return NULL;
-}
-
-void NeuralNetwork::updateAddNeuron(int x, int y)
-{
-	nodeAdd->setPosition(snapPosition(nodeAdd, x, y));
 }
 
 void NeuralNetwork::updateAddEdge(int x, int y)
@@ -492,17 +513,334 @@ bool NeuralNetwork::canConnect(Node *first, Node *second)
 	return true;
 }
 
-void NeuralNetwork::addEdge(Node *node)
+bool NeuralNetwork::canLink(Node *first, Node *second)
 {
-	Node *first = edgeAdd->getFirst();
-	if(!canConnect(first, node))
+	return !first->is(Node::TypeOutput) && !second->is(Node::TypeInput) &&
+		canConnect(first, second);
+}
+
+void NeuralNetwork::connect(Node *first, Node *second)
+{
+	if(!canConnect(first, second))
 		return;
 	// a conexão com a saída repassa o valor do neurônio, as demais começam
 	// com peso aleatório
-	double weight = node->is(Node::TypeOutput) ? 1 : randomWeight();
-	Edge *edge = new Edge(first, node, weight);
-	edges.push_back(edge);
+	double weight = second->is(Node::TypeOutput) ? 1 : randomWeight();
+	edges.push_back(new Edge(first, second, weight));
 	modified = true;
+}
+
+void NeuralNetwork::addEdge(Node *node)
+{
+	connect(edgeAdd->getFirst(), node);
+}
+
+void NeuralNetwork::connectAll(const std::vector<Node *>& sources,
+	const std::vector<Node *>& targets)
+{
+	for(size_t s = 0; s < sources.size(); s++)
+	{
+		for(size_t t = 0; t < targets.size(); t++)
+		{
+			if(canLink(sources[s], targets[t]))
+				connect(sources[s], targets[t]);
+		}
+	}
+}
+
+void NeuralNetwork::disconnectAll(const std::vector<Node *>& sources,
+	const std::vector<Node *>& targets)
+{
+	std::vector<Edge *>::iterator ite = edges.begin();
+	while(ite != edges.end())
+	{
+		Edge *edge = *ite;
+		if(std::find(sources.begin(), sources.end(), edge->getFirst()) == sources.end() ||
+			std::find(targets.begin(), targets.end(), edge->getSecond()) == targets.end())
+		{
+			ite++;
+			continue;
+		}
+		if(edgeSelected == edge)
+			selectEdge(NULL);
+		delete edge;
+		ite = edges.erase(ite);
+		modified = true;
+	}
+}
+
+/**
+ * x da camada, o do nó mais à esquerda
+ */
+static int columnX(const std::vector<Node *>& column)
+{
+	int x = column[0]->getPosition().x;
+	for(size_t n = 1; n < column.size(); n++)
+		x = std::min(x, column[n]->getPosition().x);
+	return x;
+}
+
+static bool hasType(const std::vector<Node *>& nodes, Node::Type type)
+{
+	for(size_t n = 0; n < nodes.size(); n++)
+	{
+		if(nodes[n]->is(type))
+			return true;
+	}
+	return false;
+}
+
+std::vector<std::vector<Node *> > NeuralNetwork::columns()
+{
+	std::vector<Node *> sorted = neurons;
+	std::stable_sort(sorted.begin(), sorted.end(), [](Node *a, Node *b)
+	{
+		return a->getPosition().x < b->getPosition().x;
+	});
+	// cada camada junta os nós a menos da tolerância do mais à esquerda
+	std::vector<std::vector<Node *> > result;
+	std::vector<Node *>::iterator it;
+	for(it = sorted.begin(); it != sorted.end(); it++)
+	{
+		if(result.empty() ||
+			(*it)->getPosition().x - result.back()[0]->getPosition().x > LAYER_TOLERANCE)
+			result.push_back(std::vector<Node *>());
+		result.back().push_back(*it);
+	}
+	for(size_t c = 0; c < result.size(); c++)
+	{
+		std::stable_sort(result[c].begin(), result[c].end(), [](Node *a, Node *b)
+		{
+			return a->getPosition().y < b->getPosition().y;
+		});
+	}
+	return result;
+}
+
+NeuralNetwork::Layer NeuralNetwork::layerAt(int x)
+{
+	Layer layer;
+	std::vector<std::vector<Node *> > all = columns();
+	// a camada mais próxima dentro da tolerância
+	int found = -1;
+	int distance = LAYER_TOLERANCE + 1;
+	for(size_t c = 0; c < all.size(); c++)
+	{
+		if(abs(columnX(all[c]) - x) >= distance)
+			continue;
+		distance = abs(columnX(all[c]) - x);
+		found = (int)c;
+	}
+	if(found >= 0)
+	{
+		layer.nodes = all[found];
+		if(found > 0)
+			layer.prev = all[found - 1];
+		if(found + 1 < (int)all.size())
+			layer.next = all[found + 1];
+		return layer;
+	}
+	// sem camada no x, as vizinhas são as de antes e de depois dele
+	for(size_t c = 0; c < all.size(); c++)
+	{
+		if(columnX(all[c]) < x)
+			layer.prev = all[c];
+		else if(layer.next.empty())
+			layer.next = all[c];
+	}
+	return layer;
+}
+
+void NeuralNetwork::addToLayer(const std::vector<Node *>& nodes)
+{
+	Layer layer = layerAt(nodes[0]->getPosition().x);
+	// a camada nova fica no caminho entre as vizinhas
+	if(layer.nodes.empty())
+		disconnectAll(layer.prev, layer.next);
+	neurons.insert(neurons.end(), nodes.begin(), nodes.end());
+	connectAll(layer.prev, nodes);
+	connectAll(nodes, layer.next);
+	modified = true;
+}
+
+/**
+ * Espaçamento entre os nós da camada: a distância mais comum, na grade
+ */
+static int columnSpacing(const std::vector<Node *>& column)
+{
+	if(column.size() < 2)
+		return ARRANGE_MIN_NODE_SPACING;
+	std::vector<int> gaps;
+	for(size_t n = 1; n < column.size(); n++)
+		gaps.push_back(column[n]->getPosition().y - column[n - 1]->getPosition().y);
+	std::sort(gaps.begin(), gaps.end());
+	int spacing = (int)roundf(gaps[gaps.size() / 2] / (float)GRID_SIZE) * GRID_SIZE;
+	// nós empilhados ganham espaço para não se sobreporem
+	return std::max(spacing, ARRANGE_MIN_NODE_SPACING / 2);
+}
+
+void NeuralNetwork::addToColumn(Node::Type type, Rectangle area)
+{
+	cancelAction();
+	Node *node = newNode(type);
+	std::vector<Node *> added(1, node);
+	std::vector<std::vector<Node *> > all = columns();
+	if(all.empty())
+	{
+		// o primeiro nó fica no centro da área
+		Point p = toWorld((int)(area.x + area.width / 2), (int)(area.y + area.height / 2));
+		node->setPosition(snapToGrid(p.x), snapToGrid(p.y));
+		addToLayer(added);
+		selectNode(node);
+		return;
+	}
+	// centro vertical da rede antes do nó novo
+	int top = neurons[0]->getPosition().y, bottom = top;
+	std::vector<Node *>::iterator it;
+	for(it = neurons.begin(); it != neurons.end(); it++)
+	{
+		top = std::min(top, (*it)->getPosition().y);
+		bottom = std::max(bottom, (*it)->getPosition().y);
+	}
+	int center = (top + bottom) / 2;
+	// o neurônio vai na camada do selecionado; sem ele, como a entrada e a
+	// saída, na camada do tipo: a primeira com entradas, a última com os demais
+	int target = -1;
+	bool neuronSelected = type == Node::TypeNeuron && nodeSelected != NULL &&
+		nodeSelected->is(Node::TypeNeuron);
+	for(size_t c = 0; c < all.size(); c++)
+	{
+		bool inColumn = std::find(all[c].begin(), all[c].end(), nodeSelected) != all[c].end();
+		if(neuronSelected ? inColumn : (hasType(all[c], type) &&
+			(target < 0 || type != Node::TypeInput)))
+			target = (int)c;
+	}
+	if(target >= 0)
+	{
+		// abaixo do último, no x do selecionado se for desta camada
+		std::vector<Node *> column = all[target];
+		int spacing = columnSpacing(column);
+		Node *last = column.back();
+		int x = last->getPosition().x;
+		if(std::find(column.begin(), column.end(), nodeSelected) != column.end())
+			x = nodeSelected->getPosition().x;
+		node->setPosition(x, last->getPosition().y + spacing);
+		addToLayer(added);
+		// a camada com espaçamento igual, centralizada na rede
+		column.push_back(node);
+		int first = snapToGrid(center - spacing * ((int)column.size() - 1) / 2);
+		for(size_t n = 0; n < column.size(); n++)
+			column[n]->setPosition(column[n]->getPosition().x, first + spacing * (int)n);
+		selectNode(node);
+		return;
+	}
+	// sem a camada do tipo, cria uma: a de entrada antes da primeira, a de
+	// saída depois da última e a de neurônios depois das entradas
+	int x;
+	if(type == Node::TypeInput)
+		x = columnX(all.front()) - ARRANGE_MAX_LAYER_SPACING;
+	else if(type == Node::TypeOutput)
+		x = columnX(all.back()) + ARRANGE_MAX_LAYER_SPACING;
+	else
+	{
+		int inputs = -1;
+		for(size_t c = 0; c < all.size(); c++)
+		{
+			if(hasType(all[c], Node::TypeInput))
+				inputs = (int)c;
+		}
+		if(inputs < 0)
+			x = columnX(all.front()) - ARRANGE_MAX_LAYER_SPACING;
+		else if(inputs + 1 == (int)all.size())
+			x = columnX(all[inputs]) + ARRANGE_MAX_LAYER_SPACING;
+		else
+		{
+			int left = columnX(all[inputs]), right = columnX(all[inputs + 1]);
+			x = snapToGrid((left + right) / 2);
+			if(right - left < 2 * ARRANGE_MIN_LAYER_SPACING)
+			{
+				// sem espaço entre as camadas, as seguintes vão para a direita
+				x = left + ARRANGE_MAX_LAYER_SPACING;
+				for(size_t c = inputs + 1; c < all.size(); c++)
+				{
+					for(it = all[c].begin(); it != all[c].end(); it++)
+					{
+						const Point& p = (*it)->getPosition();
+						(*it)->setPosition(p.x + ARRANGE_MAX_LAYER_SPACING, p.y);
+					}
+				}
+			}
+		}
+	}
+	node->setPosition(x, snapToGrid(center));
+	addToLayer(added);
+	selectNode(node);
+}
+
+void NeuralNetwork::startLayer(int x, int y)
+{
+	cancelLayer();
+	actionState = ActionLayer;
+	layerStart = snapPosition(NULL, x, y);
+	Layer layer = layerAt(layerStart.x);
+	if(layer.nodes.empty())
+	{
+		// a rede começa pelas entradas, depois delas vêm os neurônios
+		layerType = hasType(neurons, Node::TypeInput) ? Node::TypeNeuron : Node::TypeInput;
+		return;
+	}
+	// sobre uma camada os nós entram nela, com o tipo dela
+	if(snapX != SnapLayer)
+		layerStart.x = columnX(layer.nodes);
+	snapX = SnapLayer;
+	layerType = layer.nodes[0]->getType();
+	std::vector<Node *>::iterator it;
+	for(it = layer.nodes.begin(); it != layer.nodes.end(); it++)
+	{
+		if(!(*it)->is(layerType))
+			layerType = Node::TypeNeuron;
+	}
+}
+
+void NeuralNetwork::updateLayer(int x, int y)
+{
+	// o tremor do clique não cria nós
+	if(layerNodes.empty() && abs(x - pressX) <= 3 && abs(y - pressY) <= 3)
+		return;
+	// um nó a mais a cada espaçamento arrastado, para cima ou para baixo
+	int distance = toWorld(x, y).y - layerStart.y;
+	int direction = distance < 0 ? -1 : 1;
+	size_t count = 1 + (size_t)floorf(abs(distance) / (float)ARRANGE_MIN_NODE_SPACING + 0.5f);
+	while(layerNodes.size() < count)
+		layerNodes.push_back(newNode(layerType));
+	while(layerNodes.size() > count)
+	{
+		delete layerNodes.back();
+		layerNodes.pop_back();
+	}
+	for(size_t n = 0; n < layerNodes.size(); n++)
+		layerNodes[n]->setPosition(layerStart.x,
+			layerStart.y + direction * ARRANGE_MIN_NODE_SPACING * (int)n);
+}
+
+void NeuralNetwork::finishLayer()
+{
+	actionState = ActionNone;
+	if(layerNodes.empty())
+		return;
+	addToLayer(layerNodes);
+	selectNode(layerNodes.back());
+	layerNodes.clear();
+}
+
+void NeuralNetwork::cancelLayer()
+{
+	std::vector<Node *>::iterator it;
+	for(it = layerNodes.begin(); it != layerNodes.end(); it++)
+		delete *it;
+	layerNodes.clear();
+	if(actionState == ActionLayer)
+		actionState = ActionNone;
 }
 
 double NeuralNetwork::randomWeight()
@@ -586,6 +924,7 @@ void NeuralNetwork::removeNode(Node *node)
 		neurons.erase(itn);
 		break;
 	}
+	cancelLayer();
 	actionState = ActionNone;
 	modified = true;
 }
@@ -604,6 +943,7 @@ void NeuralNetwork::removeEdge(Edge* edge)
 		edges.erase(ite);
 		break;
 	}
+	cancelLayer();
 	actionState = ActionNone;
 	modified = true;
 }
@@ -754,6 +1094,7 @@ void NeuralNetwork::setInputBias(InputNode *input, bool bias)
 
 void NeuralNetwork::clear()
 {
+	cancelLayer();
 	selectNode(NULL);
 	selectEdge(NULL);
 	selectBias(NULL);
@@ -790,6 +1131,7 @@ void NeuralNetwork::notifyDataChanged()
 
 void NeuralNetwork::cancelAction()
 {
+	cancelLayer();
 	actionState = ActionNone;
 	nodeToggle = NULL;
 	bMoving = false;
@@ -843,12 +1185,6 @@ void NeuralNetwork::mouseDown(int x, int y)
 	y = downY = p.y;
 	nodeToggle = NULL;
 	dragging = false;
-	if(actionState == ActionAdd)
-	{
-		addNeuron(x, y);
-		actionState = ActionNone;
-		return;
-	}
 	Node *node = neuronAt(x, y);
 	if(node != NULL)
 	{
@@ -857,6 +1193,16 @@ void NeuralNetwork::mouseDown(int x, int y)
 		return;
 	}
 	actionState = ActionNone;
+	// Shift fora dos nós arrasta uma camada nova, mesmo sobre conexões e bias
+	if(!running && (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)))
+	{
+		selectNode(NULL);
+		selectEdge(NULL);
+		selectBias(NULL);
+		startLayer(x, y);
+		bDown = true;
+		return;
+	}
 	// alvo da saída na execução
 	node = running ? valueAt(x, y) : NULL;
 	if(node != NULL)
@@ -979,9 +1325,14 @@ Execution::TrainResult NeuralNetwork::train()
 	return result;
 }
 
-bool NeuralNetwork::isAdding()
+bool NeuralNetwork::isDrawingLayer()
 {
-	return actionState == ActionAdd;
+	return actionState == ActionLayer;
+}
+
+bool NeuralNetwork::isEmpty()
+{
+	return neurons.empty();
 }
 
 bool NeuralNetwork::isMoving()

@@ -61,12 +61,24 @@ Os botões ficam num painel flutuante no canto da área de edição. Clique em u
 para conectá-los. A conexão começa com peso aleatório entre -1 e 1, e a conexão com uma saída com
 peso 1.
 
+- Segure Shift e arraste no fundo para criar uma camada: um nó a cada 120 pixels arrastados, para
+  baixo ou para cima, Esc cancela. Na rede sem entradas a camada é de entradas, depois delas de
+  neurônios; começando sobre uma camada existente os nós entram nela, com o tipo dela, que é como
+  se acrescentam saídas pelo arraste. Ao soltar, cada nó da camada anterior é ligado a cada nó novo
+  e cada nó novo a cada nó da camada seguinte. Uma camada criada entre duas remove as conexões
+  diretas entre elas.
+- "Neurônio", "Entrada" e "Saída" adicionam o nó abaixo do último da camada dele, já ligado às
+  camadas vizinhas, e redistribuem a camada com espaçamento igual no centro vertical da rede. O
+  neurônio vai na camada do neurônio selecionado, ou na última com neurônios; a entrada na primeira
+  camada com entradas e a saída na última com saídas. Sem essa camada o botão cria uma: a de
+  entradas antes de todas, a de saídas depois de todas e a de neurônios depois das entradas. O nó
+  novo fica selecionado, então cliques seguidos continuam na mesma camada.
 - Clique direito (ou duplo) no neurônio: menu com a função de ativação e "Excluir neurônio". Na
   entrada o menu escolhe o tipo, dado ou bias, e na conexão ou na saída exclui.
 - Peso e bias: o primeiro clique seleciona e o segundo (ou um clique duplo) edita no lugar. Enter
   ou clicar fora aplica, Esc cancela.
 - Delete exclui o nó ou a conexão selecionada.
-- Arrastar um nó, ou posicionar um novo, alinha o centro dele aos pontos da grade. A menos de 8
+- Arrastar um nó, ou o início de uma camada nova, alinha o centro dele aos pontos da grade. A menos de 8
   pixels do x de outro nó ele entra na camada desse nó, e do y, na linha dele, com prioridade sobre
   a grade. Uma linha azul mostra o alinhamento com outro nó e uma tracejada, com a grade. Segure Alt
   (Option no Mac) para mover sem alinhar.
@@ -75,8 +87,8 @@ peso 1.
   ficam na altura média dos que os alimentam, para as conexões cruzarem menos. Depois centraliza a
   rede com o zoom que a mostra inteira, no máximo 100%.
 - A roda do mouse aproxima e afasta a rede em volta do ponteiro, de 25% a 400%. Arraste o fundo
-  vazio, ou qualquer ponto com o botão do meio, para mover a rede na tela. Abrir um arquivo volta a
-  vista para 100%.
+  vazio sem Shift, ou qualquer ponto com o botão do meio, para mover a rede na tela. Abrir um
+  arquivo volta a vista para 100%.
 
 Cada neurônio tem um bias (`b`, mostrado acima dele) somado à entrada da função de ativação, que faz
 o papel do limiar negativo. Ele começa aleatório e é treinado junto com os pesos. Para modelar o
