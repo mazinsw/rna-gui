@@ -20,6 +20,7 @@ namespace icons
 		Save,
 		Arrange,
 		Dice,
+		Forget,
 		// dentro da entrada, 16x16
 		Arrow,
 		// menu, em uma caixa 30x20

@@ -99,15 +99,29 @@ edição pelo peso, na execução pelo peso vezes o valor que passa por ela, rel
 
 "Executar" liga o modo de execução: clique nas entradas para alternar o valor entre 0 e 1 e nas
 saídas para alternar o alvo. Cada neurônio mostra o valor calculado e a saída fica verde quando é
-igual ao alvo. "Treinar" ajusta os pesos e os bias por retropropagação com os valores atuais até a
-saída ficar igual ao alvo (no máximo 1000 iterações) e destaca os valores alterados. A taxa de
-aprendizado começa em 0,1 e se adapta: cresce enquanto o erro cai, e o passo que aumentaria o erro é
-desfeito com a taxa reduzida à metade, então a rede nunca termina pior do que começou. A conexão que
-é a única de uma saída repassa o valor do nó e o peso dela fica fixo; numa saída ligada a vários
-nós, que soma os valores deles, os pesos também são treinados. Treine cada linha da tabela verdade
-até todas acertarem. "Sortear pesos" sorteia de novo, entre -1 e 1, os bias e os pesos treinados,
-para recomeçar quando o treino não chega ao alvo ou a rede tem valores inválidos. "Parar" volta à
-edição.
+igual ao alvo.
+
+"Treinar" guarda a combinação da tela, os valores das entradas e os alvos das saídas, como uma
+amostra, e ajusta os pesos e os bias por retropropagação até as saídas de todas as amostras
+guardadas ficarem iguais aos alvos (no máximo 1000 iterações), destacando os valores alterados.
+Assim cada linha da tabela verdade é ensinada com um clique sem desfazer as anteriores: configure as
+entradas e os alvos e clique em "Treinar", linha a linha. Treinar de novo uma combinação já
+guardada troca os alvos dela. O treino parte dos pesos atuais e cada peso e bias tem um passo próprio
+(Rprop), que cresce enquanto o sentido do ajuste se mantém e cai à metade quando ele troca; a rede
+termina com os melhores pesos encontrados, nunca pior do que começou. A conexão que é a única de uma
+saída repassa o valor do nó e o peso dela fica fixo; numa saída ligada a vários nós, que soma os
+valores deles, os pesos também são treinados.
+
+- "Sortear pesos" sorteia de novo, entre -1 e 1, os bias e os pesos treinados, para recomeçar
+  quando o treino não chega ao alvo ou a rede tem valores inválidos. As amostras continuam guardadas.
+- "Zerar amostras" esquece as amostras, e o próximo treino usa só a combinação da tela. Elas também
+  são esquecidas ao adicionar ou excluir uma entrada ou saída e ao trocar o tipo de uma entrada.
+- "Salvar" grava as amostras ao lado da rede, `rede.amostras.txt` para `rede.bin`, no mesmo bloco
+  dos arquivos do console: `amostras` e a quantidade, depois, para cada amostra, os valores das
+  entradas na ordem dos nós (a entrada de bias vale 1) e `saidas` com os alvos, com ponto decimal.
+  Sem amostras o arquivo é apagado. Ao abrir a rede ele é lido de volta; se não combina com a rede,
+  ela abre sem amostras.
+- "Parar" volta à edição.
 
 ## Exemplos
 

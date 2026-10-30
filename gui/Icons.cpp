@@ -144,6 +144,14 @@ namespace icons
 			c.dot(9, 9, 1.4f);
 			c.dot(12, 12, 1.4f);
 			break;
+		case Forget:
+			// lixeira
+			c.lines({ { 3, 5 }, { 15, 5 } });
+			c.lines({ { 7, 5 }, { 7, 3 }, { 11, 3 }, { 11, 5 } });
+			c.lines({ { 4.5f, 5 }, { 5.5f, 15.5f }, { 12.5f, 15.5f }, { 13.5f, 5 } });
+			c.lines({ { 7.5f, 8 }, { 7.5f, 12.5f } });
+			c.lines({ { 10.5f, 8 }, { 10.5f, 12.5f } });
+			break;
 		case Arrow:
 			c.lines({ { 3, 8 }, { 12, 8 } });
 			c.lines({ { 8.5f, 4.5f }, { 12, 8 }, { 8.5f, 11.5f } });

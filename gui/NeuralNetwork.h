@@ -388,9 +388,17 @@ public:
 	int arrange(Rectangle area);
 	void setInputBias(InputNode *input, bool bias);
 	/**
-	 * Grava a rede, o caminho é UTF-8
+	 * Grava a rede e, ao lado, as amostras do treino (rede.amostras.txt); sem
+	 * amostras apaga o arquivo delas. O caminho é UTF-8.
 	 */
 	void saveToFile(const std::string& fileName);
+
+	/**
+	 * Lê as amostras gravadas ao lado da rede, se o arquivo existir, e retorna
+	 * quantas leu. Se ele não combina com a rede lança exceção e a rede fica
+	 * sem amostras.
+	 */
+	int loadSamples(const std::string& fileName);
 
 	/**
 	 * Substitui a rede pela do arquivo, o caminho é UTF-8. Se o arquivo for
@@ -433,6 +441,16 @@ public:
 	 * está
 	 */
 	void randomizeWeights();
+
+	/**
+	 * Amostras guardadas pelo treino, todas usadas a cada treino
+	 */
+	int getSampleCount();
+
+	/**
+	 * Esquece as amostras, o próximo treino usa só a combinação da tela
+	 */
+	void forgetSamples();
 
 	/**
 	 * Indica se uma camada nova está sendo arrastada com Shift

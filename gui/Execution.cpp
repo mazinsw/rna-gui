@@ -1,4 +1,5 @@
 #include "Execution.h"
+#include "InputNode.h"
 #include "NeuronNode.h"
 #include "OutputNode.h"
 #include "../functions/Linear.h"
@@ -6,6 +7,7 @@
 #include "../functions/Bipolar.h"
 #include "../functions/Logistic.h"
 #include "../functions/Hiperbolic.h"
+#include <algorithm>
 #include <cmath>
 
 static LinearFunction linear;
@@ -41,6 +43,9 @@ void Execution::sort()
 	order.clear();
 	incoming.clear();
 	outgoing.clear();
+	inputs.clear();
+	outputs.clear();
+	neurons.clear();
 	cycle = false;
 	for(Edge* edge : edges)
 	{
@@ -48,7 +53,15 @@ void Execution::sort()
 		outgoing[edge->getFirst()].push_back(edge);
 	}
 	for(Node* node : nodes)
+	{
+		if(node->is(Node::TypeInput))
+			inputs.push_back(node);
+		else if(node->is(Node::TypeOutput))
+			outputs.push_back((OutputNode*)node);
+		else
+			neurons.push_back((NeuronNode*)node);
 		visit(node, state);
+	}
 }
 
 void Execution::visit(Node* node, std::map<Node*, int>& state)
@@ -72,6 +85,12 @@ void Execution::visit(Node* node, std::map<Node*, int>& state)
 bool Execution::execute()
 {
 	sort();
+	propagate();
+	return !cycle;
+}
+
+void Execution::propagate()
+{
 	for(Node* node : order)
 	{
 		if(node->is(Node::TypeInput))
@@ -86,17 +105,11 @@ bool Execution::execute()
 		}
 		node->setValue(sum);
 	}
-	return !cycle;
 }
 
 bool Execution::hasOutput()
 {
-	for(Node* node : nodes)
-	{
-		if(node->is(Node::TypeOutput))
-			return true;
-	}
-	return false;
+	return !outputs.empty();
 }
 
 double Execution::getError()
@@ -120,42 +133,22 @@ bool Execution::isOnTarget()
 	return true;
 }
 
-double Execution::squaredError()
+std::vector<double> Execution::save()
 {
-	double error = 0;
-	for(Node* node : nodes)
-	{
-		if(!node->is(Node::TypeOutput))
-			continue;
-		double difference = ((OutputNode*)node)->getTarget() - node->getValue();
-		error += difference * difference;
-	}
-	return error;
-}
-
-Execution::Snapshot Execution::save()
-{
-	Snapshot snapshot;
+	std::vector<double> values;
 	for(Edge* edge : edges)
-		snapshot.weights.push_back(edge->getWeight());
-	for(Node* node : nodes)
-	{
-		if(node->is(Node::TypeNeuron))
-			snapshot.biases.push_back(((NeuronNode*)node)->getBias());
-	}
-	return snapshot;
+		values.push_back(edge->getWeight());
+	for(NeuronNode* neuron : neurons)
+		values.push_back(neuron->getBias());
+	return values;
 }
 
-void Execution::restore(const Snapshot& snapshot)
+void Execution::restore(const std::vector<double>& values)
 {
 	for(size_t i = 0; i < edges.size(); i++)
-		edges[i]->setWeight(snapshot.weights[i]);
-	size_t i = 0;
-	for(Node* node : nodes)
-	{
-		if(node->is(Node::TypeNeuron))
-			((NeuronNode*)node)->setBias(snapshot.biases[i++]);
-	}
+		edges[i]->setWeight(values[i]);
+	for(size_t i = 0; i < neurons.size(); i++)
+		neurons[i]->setBias(values[edges.size() + i]);
 }
 
 /**
@@ -171,23 +164,19 @@ static bool isFinite(const std::vector<double>& values)
 	return true;
 }
 
-bool Execution::markChanged(const Snapshot& snapshot)
+bool Execution::markChanged(const std::vector<double>& values)
 {
 	bool changed = false;
 	for(size_t i = 0; i < edges.size(); i++)
 	{
-		bool edgeChanged = edges[i]->getWeight() != snapshot.weights[i];
+		bool edgeChanged = edges[i]->getWeight() != values[i];
 		edges[i]->setChanged(edgeChanged);
 		changed = changed || edgeChanged;
 	}
-	size_t i = 0;
-	for(Node* node : nodes)
+	for(size_t i = 0; i < neurons.size(); i++)
 	{
-		if(!node->is(Node::TypeNeuron))
-			continue;
-		NeuronNode* neuron = (NeuronNode*)node;
-		bool biasChanged = neuron->getBias() != snapshot.biases[i++];
-		neuron->setBiasChanged(biasChanged);
+		bool biasChanged = neurons[i]->getBias() != values[edges.size() + i];
+		neurons[i]->setBiasChanged(biasChanged);
 		changed = changed || biasChanged;
 	}
 	return changed;
@@ -208,60 +197,84 @@ std::vector<bool> Execution::isTrainable()
 	return trainable;
 }
 
-bool Execution::step(double rate)
+Execution::Sample Execution::current()
 {
-	// erro de cada neurônio, das saídas para as entradas
-	std::map<Node*, double> delta;
-	for(auto it = order.rbegin(); it != order.rend(); it++)
+	Sample sample;
+	for(Node* input : inputs)
+		sample.inputs.push_back(input->getValue());
+	for(OutputNode* output : outputs)
+		sample.targets.push_back(output->getTarget());
+	return sample;
+}
+
+bool Execution::remember(const Sample& sample)
+{
+	// as guardadas com outras entradas ou saídas não valem mais
+	if(!samples.empty() && (samples[0].inputs.size() != sample.inputs.size() ||
+		samples[0].targets.size() != sample.targets.size()))
+		samples.clear();
+	for(Sample& other : samples)
 	{
-		Node* node = *it;
-		if(!node->is(Node::TypeNeuron))
-			continue;
-		double gradient = 0;
-		for(Edge* edge : outgoing[node])
+		if(other.inputs == sample.inputs)
 		{
-			Node* next = edge->getSecond();
-			if(next->is(Node::TypeOutput))
-				gradient += edge->getWeight() *
-					(((OutputNode*)next)->getTarget() - next->getValue());
-			else if(next->is(Node::TypeNeuron))
-				gradient += edge->getWeight() * delta[next];
+			if(other.targets == sample.targets)
+				return false;
+			other.targets = sample.targets;
+			return true;
 		}
-		delta[node] = gradient * derivative(((NeuronNode*)node)->getFunctionType(),
-			node->getValue());
 	}
-	std::vector<bool> trainable = isTrainable();
-	std::vector<double> weights;
-	for(size_t i = 0; i < edges.size(); i++)
-	{
-		Edge* edge = edges[i];
-		Node* second = edge->getSecond();
-		double weight = edge->getWeight();
-		// a saída soma os nós sem função de ativação, o erro dela é o próprio
-		// delta
-		if(trainable[i] && second->is(Node::TypeOutput))
-			weight += rate * (((OutputNode*)second)->getTarget() - second->getValue()) *
-				edge->getFirst()->getValue();
-		else if(trainable[i])
-			weight += rate * delta[second] * edge->getFirst()->getValue();
-		if(!std::isfinite(weight))
-			return false;
-		weights.push_back(weight);
-	}
-	// o bias é o peso de uma entrada que vale sempre 1
-	std::map<Node*, double> biases;
-	for(auto& item : delta)
-	{
-		double bias = ((NeuronNode*)item.first)->getBias() + rate * item.second;
-		if(!std::isfinite(bias))
-			return false;
-		biases[item.first] = bias;
-	}
-	for(size_t i = 0; i < edges.size(); i++)
-		edges[i]->setWeight(weights[i]);
-	for(auto& item : biases)
-		((NeuronNode*)item.first)->setBias(item.second);
+	samples.push_back(sample);
 	return true;
+}
+
+void Execution::apply(const Sample& sample)
+{
+	for(size_t i = 0; i < inputs.size(); i++)
+	{
+		if(!((InputNode*)inputs[i])->isBias())
+			inputs[i]->setValue(sample.inputs[i]);
+	}
+	propagate();
+}
+
+Execution::Evaluation Execution::evaluate(std::vector<double>& gradient)
+{
+	Evaluation evaluation = { 0, 0, true };
+	gradient.assign(edges.size() + neurons.size(), 0);
+	for(const Sample& sample : samples)
+	{
+		apply(sample);
+		// erro de cada nó, das saídas para as entradas; a saída soma os nós sem
+		// função de ativação e o erro dela é a própria diferença
+		std::map<Node*, double> delta;
+		for(size_t i = 0; i < outputs.size(); i++)
+		{
+			double difference = sample.targets[i] - outputs[i]->getValue();
+			evaluation.squared += difference * difference;
+			evaluation.absolute += fabs(difference);
+			evaluation.onTarget = evaluation.onTarget &&
+				fabs(difference) < OutputNode::Tolerance;
+			delta[outputs[i]] = difference;
+		}
+		for(auto it = order.rbegin(); it != order.rend(); it++)
+		{
+			Node* node = *it;
+			if(!node->is(Node::TypeNeuron))
+				continue;
+			double sum = 0;
+			for(Edge* edge : outgoing[node])
+				sum += edge->getWeight() * delta[edge->getSecond()];
+			delta[node] = sum * derivative(((NeuronNode*)node)->getFunctionType(),
+				node->getValue());
+		}
+		// o peso anda no sentido do erro do destino vezes o valor da origem; o
+		// bias é o peso de uma entrada que vale sempre 1
+		for(size_t i = 0; i < edges.size(); i++)
+			gradient[i] += delta[edges[i]->getSecond()] * edges[i]->getFirst()->getValue();
+		for(size_t i = 0; i < neurons.size(); i++)
+			gradient[edges.size() + i] += delta[neurons[i]];
+	}
+	return evaluation;
 }
 
 void Execution::clearChanged()
@@ -277,7 +290,7 @@ void Execution::clearChanged()
 
 Execution::TrainResult Execution::train()
 {
-	TrainResult result = { Trained, 0, 0, 0, false };
+	TrainResult result = { Trained, 0, 0, 0, false, 0, false };
 	clearChanged();
 	if(!execute())
 	{
@@ -289,42 +302,79 @@ Execution::TrainResult Execution::train()
 		result.status = NoOutput;
 		return result;
 	}
-	result.errorBefore = result.errorAfter = getError();
-	Snapshot start = save();
-	if(!std::isfinite(result.errorBefore) || !isFinite(start.weights) ||
-		!isFinite(start.biases))
+	// a amostra da tela volta para as entradas no fim
+	Sample screen = current();
+	result.samplesChanged = remember(screen);
+	result.samples = (int)samples.size();
+	std::vector<double> start = save(), gradient;
+	Evaluation evaluation = evaluate(gradient);
+	result.errorBefore = result.errorAfter = evaluation.absolute;
+	if(!std::isfinite(evaluation.squared) || !isFinite(start))
 	{
+		apply(screen);
 		result.status = Invalid;
 		return result;
 	}
-	double rate = LearningRate;
-	double error = squaredError();
-	while(!isOnTarget() && result.iterations < MaxIterations && rate >= MinLearningRate)
+	// os bias, depois dos pesos, sempre são ajustados
+	std::vector<bool> adjustable = isTrainable();
+	adjustable.resize(start.size(), true);
+	std::vector<double> step(start.size(), InitialStep), last(start.size(), 0), best = start;
+	Evaluation lowest = evaluation;
+	bool stalled = false;
+	while(!evaluation.onTarget && result.iterations < MaxIterations &&
+		std::isfinite(evaluation.squared))
 	{
-		result.iterations++;
-		Snapshot previous = save();
-		if(step(rate))
+		std::vector<double> values = save();
+		double largest = 0;
+		for(size_t i = 0; i < values.size(); i++)
 		{
-			execute();
-			// nan também é desfeito
-			double next = squaredError();
-			if(next <= error)
+			if(!adjustable[i] || gradient[i] == 0)
 			{
-				if(next < error)
-					rate *= 1.05;
-				error = next;
+				last[i] = 0;
 				continue;
 			}
-			restore(previous);
-			execute();
+			double direction = gradient[i] * last[i];
+			if(direction > 0)
+				step[i] = std::min(step[i] * 1.2, MaxStep);
+			else if(direction < 0)
+				step[i] /= 2;
+			largest = std::max(largest, step[i]);
+			// passou do mínimo: o passo menor só é dado na próxima iteração
+			if(direction < 0)
+			{
+				last[i] = 0;
+				continue;
+			}
+			values[i] += gradient[i] > 0 ? step[i] : -step[i];
+			last[i] = gradient[i];
 		}
-		rate /= 2;
+		if(largest < MinStep)
+		{
+			stalled = true;
+			break;
+		}
+		result.iterations++;
+		restore(values);
+		evaluation = evaluate(gradient);
+		if(evaluation.squared < lowest.squared)
+		{
+			lowest = evaluation;
+			best = values;
+		}
 	}
-	result.errorAfter = getError();
+	// fica com os pesos que acertam todas as amostras, mesmo que outros
+	// tenham um erro menor sem acertar; nan também volta para os melhores
+	if(!evaluation.onTarget && !(evaluation.squared <= lowest.squared))
+	{
+		restore(best);
+		evaluation = lowest;
+	}
+	apply(screen);
+	result.errorAfter = evaluation.absolute;
 	result.changed = markChanged(start);
-	if(isOnTarget())
+	if(evaluation.onTarget)
 		result.status = result.iterations == 0 ? OnTarget : Trained;
-	else if(rate < MinLearningRate)
+	else if(stalled)
 		result.status = Stalled;
 	else
 		result.status = NotConverged;

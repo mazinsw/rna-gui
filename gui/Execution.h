@@ -5,10 +5,14 @@
 #include "Node.h"
 #include "Edge.h"
 
+class NeuronNode;
+class OutputNode;
+
 /**
  * Executa a rede desenhada: propaga os valores das entradas até as saídas e
- * treina os pesos por retropropagação com a amostra atual (os valores das
- * entradas e os alvos das saídas)
+ * treina os pesos por retropropagação. Cada treino guarda a amostra atual (os
+ * valores das entradas e os alvos das saídas) e ajusta a rede para todas as
+ * amostras já treinadas, então treinar uma combinação não desfaz as outras.
  */
 class Execution
 {
@@ -33,25 +37,46 @@ public:
 	{
 		TrainStatus status;
 		int iterations;
+		// soma das diferenças entre o alvo e o valor das saídas em todas as
+		// amostras
 		double errorBefore;
 		double errorAfter;
 		// algum peso ou bias mudou
 		bool changed;
+		// amostras usadas, contando a atual
+		int samples;
+		// a amostra atual entrou na lista ou mudou os alvos de uma guardada
+		bool samplesChanged;
 	};
 
-	// taxa de aprendizado inicial, ajustada a cada iteração
-	static constexpr double LearningRate = 0.1;
-	// abaixo dela o passo já não muda a rede e o treino para
-	static constexpr double MinLearningRate = 1e-12;
+	/**
+	 * Combinação treinada: o valor de cada entrada e o alvo de cada saída, na
+	 * ordem dos nós. A entrada de bias fica sempre em 1.
+	 */
+	struct Sample
+	{
+		std::vector<double> inputs;
+		std::vector<double> targets;
+	};
+
+	// passo inicial e máximo de cada peso e bias, que se adapta a cada iteração
+	static constexpr double InitialStep = 0.05;
+	static constexpr double MaxStep = 1;
+	// abaixo dele o passo já não muda a rede e o treino para
+	static constexpr double MinStep = 1e-9;
 	static constexpr int MaxIterations = 1000;
 private:
 	/**
-	 * Pesos das conexões e bias dos neurônios, na ordem das listas
+	 * Erro da rede em todas as amostras
 	 */
-	struct Snapshot
+	struct Evaluation
 	{
-		std::vector<double> weights;
-		std::vector<double> biases;
+		// soma dos quadrados das diferenças, o que o treino reduz
+		double squared;
+		// soma das diferenças, a mostrada
+		double absolute;
+		// todas as saídas de todas as amostras estão iguais aos alvos
+		bool onTarget;
 	};
 private:
 	std::vector<Node*>& nodes;
@@ -60,31 +85,55 @@ private:
 	std::vector<Node*> order;
 	std::map<Node*, std::vector<Edge*> > incoming;
 	std::map<Node*, std::vector<Edge*> > outgoing;
+	// nós de cada tipo na ordem da lista
+	std::vector<Node*> inputs;
+	std::vector<OutputNode*> outputs;
+	std::vector<NeuronNode*> neurons;
+	std::vector<Sample> samples;
 	bool cycle;
 private:
 	void sort();
 	void visit(Node* node, std::map<Node*, int>& state);
+
+	/**
+	 * Calcula o valor de cada neurônio e saída na ordem já montada
+	 */
+	void propagate();
 	bool hasOutput();
 
 	/**
-	 * Soma dos quadrados das diferenças entre o alvo e o valor de cada saída,
-	 * o erro que a retropropagação reduz
+	 * Pesos das conexões seguidos dos bias dos neurônios, na ordem das listas
 	 */
-	double squaredError();
-	Snapshot save();
-	void restore(const Snapshot& snapshot);
+	std::vector<double> save();
+	void restore(const std::vector<double>& values);
 
 	/**
 	 * Marca os pesos e os bias diferentes dos guardados, retorna true se algum
 	 * mudou
 	 */
-	bool markChanged(const Snapshot& snapshot);
+	bool markChanged(const std::vector<double>& values);
 
 	/**
-	 * Ajusta os pesos e os bias uma vez com a taxa informada, retorna false sem
-	 * alterar a rede se algum deixaria de ser um número finito
+	 * Valores atuais das entradas e alvos das saídas
 	 */
-	bool step(double rate);
+	Sample current();
+
+	/**
+	 * Guarda a amostra, no lugar da que tem as mesmas entradas, retorna false
+	 * se ela já estava guardada
+	 */
+	bool remember(const Sample& sample);
+
+	/**
+	 * Põe os valores da amostra nas entradas, menos nas de bias, e propaga
+	 */
+	void apply(const Sample& sample);
+
+	/**
+	 * Propaga cada amostra e soma em gradient, na ordem de save(), o sentido
+	 * em que cada peso e bias reduz o erro
+	 */
+	Evaluation evaluate(std::vector<double>& gradient);
 public:
 	Execution(std::vector<Node*>& nodes, std::vector<Edge*>& edges);
 
@@ -122,12 +171,42 @@ public:
 	bool isOnTarget();
 
 	/**
-	 * Treina até as saídas ficarem iguais aos alvos ou chegar ao limite de
-	 * iterações, marca os pesos e os bias alterados. A taxa cresce enquanto o
-	 * erro cai; o passo que aumenta o erro é desfeito e a taxa cai à metade,
-	 * então a rede nunca termina pior do que começou.
+	 * Guarda a amostra atual e treina até as saídas de todas as amostras
+	 * ficarem iguais aos alvos ou chegar ao limite de iterações, marca os pesos
+	 * e os bias alterados. Cada peso e bias tem um passo próprio (Rprop), que
+	 * cresce enquanto o sentido do ajuste se mantém e cai à metade quando ele
+	 * troca. A rede termina com os melhores pesos encontrados, nunca pior do
+	 * que começou.
 	 */
 	TrainResult train();
+
+	/**
+	 * Esquece as amostras guardadas, o próximo treino usa só a atual. Deve ser
+	 * chamado quando as entradas ou as saídas mudam.
+	 */
+	inline void forgetSamples()
+	{
+		samples.clear();
+	}
+
+	inline int getSampleCount()
+	{
+		return (int)samples.size();
+	}
+
+	inline const std::vector<Sample>& getSamples()
+	{
+		return samples;
+	}
+
+	/**
+	 * Substitui as amostras guardadas, que devem ter os valores de todas as
+	 * entradas e os alvos de todas as saídas
+	 */
+	inline void setSamples(const std::vector<Sample>& samples)
+	{
+		this->samples = samples;
+	}
 };
 
 #endif /* _EXECUTION_H_ */

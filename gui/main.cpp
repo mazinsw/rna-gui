@@ -80,27 +80,34 @@ private:
 		neuralNetwork->setRunning(!neuralNetwork->isRunning());
 		message.clear();
 	}
+	static std::string samplesText(int count)
+	{
+		return std::to_string(count) + (count == 1 ? " amostra" : " amostras");
+	}
 	void treinar()
 	{
 		Execution::TrainResult result = neuralNetwork->train();
 		std::string errors = "erro de " + Node::formatNumber(result.errorBefore, 2) + " para " +
 			Node::formatNumber(result.errorAfter, 2) + ".";
+		std::string iterations = std::to_string(result.iterations) +
+			(result.iterations == 1 ? " iteração" : " iterações");
+		std::string samples = " com " + samplesText(result.samples);
 		switch(result.status)
 		{
 		case Execution::Trained:
-			message = "Treinado em " + std::to_string(result.iterations) +
-				(result.iterations == 1 ? " iteração: " : " iterações: ") + errors;
+			message = "Treinado" + samples + " em " + iterations + ": " + errors;
 			break;
 		case Execution::OnTarget:
-			message = "As saídas já estão iguais aos alvos, os pesos foram mantidos.";
+			message = result.samples == 1 ?
+				"As saídas já estão iguais aos alvos, os pesos foram mantidos." :
+				"As saídas já estão iguais aos alvos nas " + samplesText(result.samples) +
+				", os pesos foram mantidos.";
 			break;
 		case Execution::NotConverged:
-			message = "Não convergiu em " + std::to_string(result.iterations) +
-				" iterações: " + errors;
+			message = "Não convergiu em " + iterations + samples + ": " + errors;
 			break;
 		case Execution::Stalled:
-			message = "O erro parou de cair em " + std::to_string(result.iterations) +
-				(result.iterations == 1 ? " iteração: " : " iterações: ") + errors +
+			message = "O erro parou de cair em " + iterations + samples + ": " + errors +
 				" Troque a função dos neurônios ou sorteie os pesos.";
 			break;
 		case Execution::Invalid:
@@ -134,6 +141,11 @@ private:
 		neuralNetwork->randomizeWeights();
 		message = "Pesos e bias sorteados entre -1 e 1.";
 	}
+	void zerarAmostras()
+	{
+		neuralNetwork->forgetSamples();
+		message = "Amostras apagadas, Treinar volta a usar só a combinação da tela.";
+	}
 	void reorganizar()
 	{
 		editor.cancel();
@@ -154,11 +166,30 @@ private:
 		try
 		{
 			neuralNetwork->saveToFile(fileName);
-			message = "Rede salva em " + pathToUtf8(pathFromUtf8(fileName).filename()) + ".";
+			int count = neuralNetwork->getSampleCount();
+			message = (count > 0 ? "Rede e " + samplesText(count) + " salvas em " :
+				std::string("Rede salva em ")) + pathToUtf8(pathFromUtf8(fileName).filename()) + ".";
 		}
 		catch (const std::exception& e)
 		{
 			messageDialog.show("Erro", std::string("Falha ao salvar a rede\n") + e.what());
+		}
+	}
+	/**
+	 * Lê as amostras gravadas ao lado da rede, uma falha só deixa a rede sem
+	 * elas
+	 */
+	void loadSamples(const std::string& path)
+	{
+		try
+		{
+			int count = neuralNetwork->loadSamples(path);
+			if(count > 0)
+				message = "Treinar usa as " + samplesText(count) + " gravadas com a rede.";
+		}
+		catch (const std::exception& e)
+		{
+			message = std::string("As amostras não foram lidas: ") + e.what();
 		}
 	}
 	void openFile(const std::string& path)
@@ -171,6 +202,7 @@ private:
 			neuralNetwork->loadFromFile(path);
 			neuralNetwork->keepRightOf(PanelRight);
 			fileName = path;
+			loadSamples(path);
 		}
 		catch (const std::exception& e)
 		{
@@ -348,7 +380,16 @@ private:
 		else if(neuralNetwork->getSelectedBias() != NULL)
 			status = "Clique de novo no bias para editar.";
 		else if(running)
+		{
+			int count = neuralNetwork->getSampleCount();
 			status = "Clique nas entradas e nas saídas para alternar entre 0 e 1.";
+			if(count == 0)
+				status += " Cada combinação treinada fica guardada.";
+			else if(count == 1)
+				status += " Treinar usa também a amostra guardada.";
+			else
+				status += " Treinar usa também as " + samplesText(count) + " guardadas.";
+		}
 		else if(neuralNetwork->isEmpty())
 			status = "Segure Shift e arraste para baixo no fundo para criar as entradas.";
 		else
@@ -391,6 +432,9 @@ private:
 			if(ui::toolButton(CLAY_ID("SortearPesos"), icons::Dice, CLAY_STRING("Sortear pesos"),
 				!neuralNetwork->isEmpty()))
 				sortearPesos();
+			if(running && neuralNetwork->getSampleCount() > 0 &&
+				ui::toolButton(CLAY_ID("ZerarAmostras"), icons::Forget, CLAY_STRING("Zerar amostras")))
+				zerarAmostras();
 			ui::separator(6);
 			if(ui::toolButton(CLAY_ID("Reorganizar"), icons::Arrange, CLAY_STRING("Reorganizar")))
 				reorganizar();
@@ -520,6 +564,7 @@ public:
 			{
 				neuralNetwork->loadFromFile(fileName);
 				neuralNetwork->keepRightOf(PanelRight);
+				loadSamples(fileName);
 			}
 		}
 		catch (const std::exception& e)

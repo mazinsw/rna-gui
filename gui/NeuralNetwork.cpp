@@ -10,6 +10,7 @@
 #include <map>
 #include <stdexcept>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #define RN_SIGN "1.1"
 #define RN_SIGN_BIAS "1.2"
@@ -658,6 +659,9 @@ void NeuralNetwork::addToLayer(const std::vector<Node *>& nodes)
 	if(layer.nodes.empty())
 		disconnectAll(layer.prev, layer.next);
 	neurons.insert(neurons.end(), nodes.begin(), nodes.end());
+	// as amostras têm um valor por entrada e um alvo por saída
+	if(!nodes[0]->is(Node::TypeNeuron))
+		execution.forgetSamples();
 	connectAll(layer.prev, nodes);
 	connectAll(nodes, layer.next);
 	modified = true;
@@ -888,6 +892,8 @@ void NeuralNetwork::selectBias(NeuronNode* neuron)
 
 void NeuralNetwork::removeNode(Node *node)
 {
+	if(!node->is(Node::TypeNeuron))
+		execution.forgetSamples();
 	if(nodeSelected == node)
 		selectNode(NULL);
 	if(biasSelected == node)
@@ -1089,11 +1095,13 @@ int NeuralNetwork::arrange(Rectangle area)
 void NeuralNetwork::setInputBias(InputNode *input, bool bias)
 {
 	input->setBias(bias);
+	execution.forgetSamples();
 	notifyDataChanged();
 }
 
 void NeuralNetwork::clear()
 {
+	execution.forgetSamples();
 	cancelLayer();
 	selectNode(NULL);
 	selectEdge(NULL);
@@ -1320,9 +1328,21 @@ bool NeuralNetwork::isRunning()
 Execution::TrainResult NeuralNetwork::train()
 {
 	Execution::TrainResult result = execution.train();
-	if(result.changed)
+	if(result.changed || result.samplesChanged)
 		modified = true;
 	return result;
+}
+
+int NeuralNetwork::getSampleCount()
+{
+	return execution.getSampleCount();
+}
+
+void NeuralNetwork::forgetSamples()
+{
+	if(execution.getSampleCount() > 0)
+		modified = true;
+	execution.forgetSamples();
 }
 
 void NeuralNetwork::randomizeWeights()
@@ -1396,6 +1416,62 @@ NeuronNode* NeuralNetwork::getSelectedBias()
 	return biasSelected;
 }
 
+/**
+ * Arquivo das amostras ao lado da rede: rede.bin -> rede.amostras.txt
+ */
+static std::filesystem::path samplesPath(const std::string& fileName)
+{
+	std::filesystem::path path = pathFromUtf8(fileName);
+	path.replace_extension(".amostras.txt");
+	return path;
+}
+
+/**
+ * Número com ponto decimal e só os dígitos necessários para ser lido igual
+ */
+static std::string formatSampleValue(double value)
+{
+	char str[32];
+	snprintf(str, sizeof(str), "%.15g", value);
+	if(strtod(str, NULL) != value)
+		snprintf(str, sizeof(str), "%.17g", value);
+	return str;
+}
+
+/**
+ * Grava as amostras no bloco dos arquivos do console: "amostras" e a
+ * quantidade, depois os valores das entradas de cada uma e "saidas" com os
+ * alvos
+ */
+static void saveSamples(const std::filesystem::path& path,
+	const std::vector<Execution::Sample>& samples)
+{
+	if(samples.empty())
+	{
+		// as amostras esquecidas não voltam ao abrir a rede
+		std::error_code error;
+		if(!std::filesystem::remove(path, error) && error)
+			throw std::runtime_error("Unable to remove " + pathToUtf8(path) + ".");
+		return;
+	}
+	std::ofstream file(path, std::ios::binary | std::ios::trunc);
+	if(!file)
+		throw std::runtime_error("Unable to create " + pathToUtf8(path) + ".");
+	file << "amostras " << samples.size() << "\n";
+	for(const Execution::Sample& sample : samples)
+	{
+		for(size_t i = 0; i < sample.inputs.size(); i++)
+			file << (i > 0 ? " " : "") << formatSampleValue(sample.inputs[i]);
+		file << "\nsaidas";
+		for(double target : sample.targets)
+			file << " " << formatSampleValue(target);
+		file << "\n";
+	}
+	file.close();
+	if(!file)
+		throw std::runtime_error("Unable to write " + pathToUtf8(path) + ".");
+}
+
 void NeuralNetwork::saveToFile(const std::string& fileName)
 {
 	std::ofstream file(pathFromUtf8(fileName), std::ios::binary | std::ios::trunc);
@@ -1454,7 +1530,64 @@ void NeuralNetwork::saveToFile(const std::string& fileName)
 	file.close();
 	if(!file)
 		throw std::runtime_error("Unable to write " + fileName + ".");
+	saveSamples(samplesPath(fileName), execution.getSamples());
 	modified = false;
+}
+
+int NeuralNetwork::loadSamples(const std::string& fileName)
+{
+	execution.forgetSamples();
+	std::filesystem::path path = samplesPath(fileName);
+	std::error_code error;
+	if(!std::filesystem::exists(path, error))
+		return 0;
+	std::ifstream file(path, std::ios::binary);
+	if(!file)
+		throw std::runtime_error("Unable to open " + pathToUtf8(path) + ".");
+	size_t inputCount = 0, outputCount = 0;
+	for(Node *node : neurons)
+	{
+		if(node->is(Node::TypeInput))
+			inputCount++;
+		else if(node->is(Node::TypeOutput))
+			outputCount++;
+	}
+	std::string word;
+	long count;
+	if(!(file >> word) || word != "amostras" || !(file >> count) || count < 0)
+		throw std::runtime_error("Expected \"amostras\" and the number of samples.");
+	std::vector<Execution::Sample> samples;
+	for(long n = 1; n <= count; n++)
+	{
+		std::runtime_error mismatch("Sample " + std::to_string(n) + " does not have the " +
+			std::to_string(inputCount) + " inputs and " + std::to_string(outputCount) +
+			" outputs of the network.");
+		// lê os valores com ponto decimal, como os arquivos do console
+		auto readValues = [&](size_t size, std::vector<double>& values)
+		{
+			for(size_t i = 0; i < size; i++)
+			{
+				char *end;
+				if(!(file >> word))
+					throw mismatch;
+				double value = strtod(word.c_str(), &end);
+				if(*end != '\0' || end == word.c_str() || !std::isfinite(value))
+					throw mismatch;
+				values.push_back(value);
+			}
+		};
+		Execution::Sample sample;
+		readValues(inputCount, sample.inputs);
+		if(!(file >> word) || word != "saidas")
+			throw mismatch;
+		readValues(outputCount, sample.targets);
+		samples.push_back(sample);
+	}
+	if(file >> word)
+		throw std::runtime_error("More values than the " + std::to_string(count) +
+			" samples declared.");
+	execution.setSamples(samples);
+	return (int)samples.size();
 }
 
 void NeuralNetwork::loadFromFile(const std::string& fileName)
