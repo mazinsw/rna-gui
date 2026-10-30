@@ -18,4 +18,9 @@ std::string pathToUtf8(const std::filesystem::path& path);
  */
 std::string getDataFilePath();
 
+/**
+ * Caminho do arquivo com o estado da janela, na mesma pasta da rede salva
+ */
+std::string getSettingsFilePath();
+
 #endif /* _PLATFORM_H_ */

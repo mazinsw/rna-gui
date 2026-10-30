@@ -352,6 +352,13 @@ public:
 	 * de 100%. A área é a dos centros dos nós, na área de edição.
 	 */
 	void fitView(Rectangle area);
+
+	/**
+	 * Zoom e deslocamento da vista, para voltar a ela ao abrir a rede de novo
+	 */
+	float getZoom();
+	Vector2 getPan();
+	void setView(float zoom, Vector2 pan);
 public:
 	NeuralNetwork();
 	~NeuralNetwork();

@@ -348,6 +348,22 @@ void NeuralNetwork::fitView(Rectangle area)
 	pan.y = roundf(area.y + area.height / 2 - (low.y + high.y) / 2.0f * zoom);
 }
 
+float NeuralNetwork::getZoom()
+{
+	return zoom;
+}
+
+Vector2 NeuralNetwork::getPan()
+{
+	return pan;
+}
+
+void NeuralNetwork::setView(float zoom, Vector2 pan)
+{
+	this->zoom = zoom < MIN_ZOOM ? MIN_ZOOM : zoom > MAX_ZOOM ? MAX_ZOOM : zoom;
+	this->pan = pan;
+}
+
 void NeuralNetwork::updateInfluence()
 {
 	// na edição pelo peso, na execução pelo sinal que passa na conexão

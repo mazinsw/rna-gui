@@ -9,6 +9,7 @@
 #include "Input.h"
 #include "Platform.h"
 #include "Resources.h"
+#include "Settings.h"
 #include "Shapes.h"
 #include "Widgets.h"
 #include "NeuralNetwork.h"
@@ -32,6 +33,8 @@ private:
 	ContextMenu menu;
 	MessageDialog messageDialog;
 	ConfirmDialog confirmDialog;
+	// estado da janela e da vista, gravado ao sair
+	Settings& settings;
 	// arquivo aberto, onde "Salvar" grava (UTF-8)
 	std::string fileName;
 	// arquivo solto na janela aguardando confirmação
@@ -547,7 +550,7 @@ private:
 		SetWindowTitle(title.c_str());
 	}
 public:
-	RedesNeuraisFrame()
+	RedesNeuraisFrame(Settings& settings): settings(settings)
 	{
 		neuralNetwork = new NeuralNetwork();
 		neuralNetworkDraw.draw = paintNeuralNetwork;
@@ -565,6 +568,9 @@ public:
 				neuralNetwork->loadFromFile(fileName);
 				neuralNetwork->keepRightOf(PanelRight);
 				loadSamples(fileName);
+				// a vista gravada é a desta rede se ela foi a última aberta
+				if(settings.fileName == fileName)
+					neuralNetwork->setView(settings.zoom, settings.pan);
 			}
 		}
 		catch (const std::exception& e)
@@ -611,7 +617,11 @@ public:
 			ClayRaylib_Render(commands);
 			EndDrawing();
 			updateTitle();
+			captureWindow(settings);
 		}
+		settings.fileName = fileName;
+		settings.zoom = neuralNetwork->getZoom();
+		settings.pan = neuralNetwork->getPan();
 	}
 };
 
@@ -625,11 +635,12 @@ int main()
 #endif
 	SetConfigFlags(flags);
 	SetTraceLogLevel(LOG_WARNING);
-	InitWindow(800, 600, "Redes Neurais Artificiais");
+	Settings settings = loadSettings();
+	InitWindow(settings.width, settings.height, "Redes Neurais Artificiais");
 	if(!IsWindowReady())
 		return 0xFFFF;
-	// o painel de botões e o status precisam caber na área de edição
-	SetWindowMinSize(560, 440);
+	SetWindowMinSize(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT);
+	restoreWindow(settings);
 	// Esc é usado para cancelar ações, não para fechar
 	SetExitKey(KEY_NULL);
 	// só redesenha quando chega algum evento
@@ -640,8 +651,9 @@ int main()
 	{
 		loadResources();
 		ClayRaylib_Initialize();
-		RedesNeuraisFrame f;
+		RedesNeuraisFrame f(settings);
 		f.run();
+		saveSettings(settings);
 	}
 	catch (const std::exception& e)
 	{

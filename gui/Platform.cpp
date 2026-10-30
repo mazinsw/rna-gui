@@ -31,7 +31,7 @@ std::string pathToUtf8(const std::filesystem::path& path)
 	return std::string(str.begin(), str.end());
 }
 
-std::string getDataFilePath()
+static std::filesystem::path getDataDir()
 {
 	std::filesystem::path dir;
 #if defined(_WIN32)
@@ -46,5 +46,15 @@ std::string getDataFilePath()
 	dir /= "RedesNeurais";
 	std::error_code error;
 	std::filesystem::create_directories(dir, error);
-	return pathToUtf8(dir / "NeuralNetWork.bin");
+	return dir;
+}
+
+std::string getDataFilePath()
+{
+	return pathToUtf8(getDataDir() / "NeuralNetWork.bin");
+}
+
+std::string getSettingsFilePath()
+{
+	return pathToUtf8(getDataDir() / "estado.txt");
 }

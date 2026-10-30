@@ -82,7 +82,7 @@ CLI_SRCS  := $(CORE_SRCS) test/test_all.cpp test/test_input.cpp test/test_traini
 GUI_SRCS  := gui/main.cpp gui/ClayRaylib.cpp gui/Widgets.cpp gui/Input.cpp \
              gui/Platform.cpp gui/Resources.cpp gui/Node.cpp gui/Edge.cpp \
              gui/InputNode.cpp gui/NeuronNode.cpp gui/OutputNode.cpp gui/NeuralNetwork.cpp \
-             gui/Execution.cpp gui/Shapes.cpp gui/Icons.cpp
+             gui/Execution.cpp gui/Shapes.cpp gui/Icons.cpp gui/Settings.cpp
 
 RES_HDRS  := $(GEN)/Roboto-Regular.ttf.h
 
