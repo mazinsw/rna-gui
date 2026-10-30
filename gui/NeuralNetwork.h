@@ -428,8 +428,9 @@ public:
 	Execution::TrainResult train();
 
 	/**
-	 * Sorteia de novo os pesos e os bias, entre -1 e 1; as conexões com as
-	 * saídas repassam o valor do neurônio e ficam como estão
+	 * Sorteia de novo, entre -1 e 1, os bias e os pesos que o treino ajusta;
+	 * a conexão que é a única de uma saída repassa o valor do nó e fica como
+	 * está
 	 */
 	void randomizeWeights();
 

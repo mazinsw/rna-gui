@@ -193,6 +193,21 @@ bool Execution::markChanged(const Snapshot& snapshot)
 	return changed;
 }
 
+std::vector<bool> Execution::isTrainable()
+{
+	std::map<Node*, int> count;
+	for(Edge* edge : edges)
+		count[edge->getSecond()]++;
+	std::vector<bool> trainable;
+	for(Edge* edge : edges)
+	{
+		Node* second = edge->getSecond();
+		trainable.push_back(second->is(Node::TypeNeuron) ||
+			(second->is(Node::TypeOutput) && count[second] > 1));
+	}
+	return trainable;
+}
+
 bool Execution::step(double rate)
 {
 	// erro de cada neurônio, das saídas para as entradas
@@ -215,13 +230,20 @@ bool Execution::step(double rate)
 		delta[node] = gradient * derivative(((NeuronNode*)node)->getFunctionType(),
 			node->getValue());
 	}
-	// os pesos das conexões com as saídas ficam fixos
+	std::vector<bool> trainable = isTrainable();
 	std::vector<double> weights;
-	for(Edge* edge : edges)
+	for(size_t i = 0; i < edges.size(); i++)
 	{
+		Edge* edge = edges[i];
+		Node* second = edge->getSecond();
 		double weight = edge->getWeight();
-		if(edge->getSecond()->is(Node::TypeNeuron))
-			weight += rate * delta[edge->getSecond()] * edge->getFirst()->getValue();
+		// a saída soma os nós sem função de ativação, o erro dela é o próprio
+		// delta
+		if(trainable[i] && second->is(Node::TypeOutput))
+			weight += rate * (((OutputNode*)second)->getTarget() - second->getValue()) *
+				edge->getFirst()->getValue();
+		else if(trainable[i])
+			weight += rate * delta[second] * edge->getFirst()->getValue();
 		if(!std::isfinite(weight))
 			return false;
 		weights.push_back(weight);

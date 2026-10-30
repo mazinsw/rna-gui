@@ -1327,10 +1327,11 @@ Execution::TrainResult NeuralNetwork::train()
 
 void NeuralNetwork::randomizeWeights()
 {
-	for(Edge* edge : edges)
+	std::vector<bool> trainable = execution.isTrainable();
+	for(size_t i = 0; i < edges.size(); i++)
 	{
-		if(!edge->getSecond()->is(Node::TypeOutput))
-			edge->setWeight(randomWeight());
+		if(trainable[i])
+			edges[i]->setWeight(randomWeight());
 	}
 	for(Node* node : neurons)
 	{

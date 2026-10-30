@@ -105,6 +105,13 @@ public:
 	void clearChanged();
 
 	/**
+	 * Indica, na ordem das conexões, se o treino ajusta o peso: as que chegam
+	 * nos neurônios e as que chegam numa saída que soma mais de um nó. A saída
+	 * ligada a um nó só repassa o valor dele e esse peso fica fixo.
+	 */
+	std::vector<bool> isTrainable();
+
+	/**
 	 * Soma das diferenças entre o alvo e o valor de cada saída
 	 */
 	double getError();
