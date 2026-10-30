@@ -26,6 +26,8 @@
 #define ARRANGE_MAX_LAYER_SPACING 200
 #define ARRANGE_MIN_NODE_SPACING 120
 #define ARRANGE_MAX_NODE_SPACING 160
+// distância entre as entradas de uma imagem, em quadrado como os pixels
+#define ARRANGE_PIXEL_SPACING 40
 // nós a menos disto no x ficam na mesma camada
 #define LAYER_TOLERANCE 30
 // limites do zoom e passo de cada volta da roda do mouse
@@ -34,6 +36,9 @@
 #define ZOOM_STEP 1.1f
 // menor distância na tela entre os pontos da grade
 #define MIN_GRID_SPACING 12
+// com mais conexões que isto os rótulos de peso cobririam a rede, só o da
+// conexão selecionada aparece
+#define MAX_WEIGHT_LABELS 100
 
 /*
  * Formato do arquivo, little-endian com tamanhos fixos para ser o mesmo em
@@ -42,8 +47,9 @@
  * neuronCount x (type:i32 function:i32 x:i32 y:i32)
  * edgeCount x (first:i32 second:i32 weight:f64)
  * A versão 1.2 acrescenta bias:f64 a cada nó e usa function da entrada para
- * marcar a entrada de bias (1). É gravada só quando a rede usa algum bias, as
- * demais continuam em 1.1.
+ * marcar a entrada de bias (1). É gravada só quando a rede usa algum bias ou
+ * uma função que a versão Windows não tem (ReLU e softmax), as demais
+ * continuam em 1.1.
  */
 
 static void writeUInt32(std::ofstream& file, uint32_t value)
@@ -124,6 +130,7 @@ NeuralNetwork::NeuralNetwork(): execution(neurons, edges), random(std::random_de
 	modified = false;
 	running = false;
 	nodeToggle = NULL;
+	showingImage = false;
 	pressX = pressY = 0;
 	request = Request{ Request::None, NULL, NULL };
 	layerType = Node::TypeNeuron;
@@ -353,6 +360,19 @@ void NeuralNetwork::fitView(Rectangle area)
 	pan.y = roundf(area.y + area.height / 2 - (low.y + high.y) / 2.0f * zoom);
 }
 
+bool NeuralNetwork::fitsIn(Rectangle area)
+{
+	std::vector<Node *>::iterator it;
+	for(it = neurons.begin(); it != neurons.end(); it++)
+	{
+		Vector2 p = toScreen((*it)->getCenter());
+		if(p.x < area.x || p.y < area.y || p.x > area.x + area.width ||
+			p.y > area.y + area.height)
+			return false;
+	}
+	return true;
+}
+
 float NeuralNetwork::getZoom()
 {
 	return zoom;
@@ -435,12 +455,59 @@ void NeuralNetwork::draw()
 			}
 		}
 	}
+	bool labels = edges.size() <= MAX_WEIGHT_LABELS;
+	for(ite = edges.begin(); ite != edges.end(); ite++)
+		(*ite)->hideLabel();
 	for(ite = visible.begin(); ite != visible.end(); ite++)
-		(*ite)->drawLabel();
+	{
+		if(labels || (*ite)->isSelected())
+			(*ite)->drawLabel();
+	}
 	for(it = neurons.begin(); it != neurons.end(); it++)
 		(*it)->draw(running);
 	for(it = layerNodes.begin(); it != layerNodes.end(); it++)
 		(*it)->draw(false);
+	if(running && showingImage)
+		drawClasses();
+}
+
+void NeuralNetwork::drawClasses()
+{
+	std::vector<Node *> outputs = readingOrder(Node::TypeOutput);
+	int recognized = getRecognized();
+	float size = ui::LabelFontSize;
+	for(size_t i = 0; i < outputs.size(); i++)
+	{
+		Vector2 center = outputs[i]->getCenter();
+		std::string text = std::to_string(i);
+		float width = Node::measureText(text, size).x + 16;
+		Vector2 middle = { center.x + 26 + width / 2, center.y };
+		Color color = ui::toColor(ui::MutedColor);
+		if((int)i == recognized)
+		{
+			Rectangle box = { middle.x - width / 2, middle.y - 12, width, 24 };
+			Node::drawPill(box, ui::toColor(ui::AccentColor), ui::toColor(ui::AccentColor));
+			color = WHITE;
+		}
+		Node::drawTextCentered(text, middle, size, color);
+	}
+}
+
+std::vector<Node *> NeuralNetwork::readingOrder(Node::Type type)
+{
+	std::vector<Node *> result;
+	for(Node *node : neurons)
+	{
+		if(node->is(type) && !(type == Node::TypeInput && ((InputNode*)node)->isBias()))
+			result.push_back(node);
+	}
+	std::stable_sort(result.begin(), result.end(), [](Node *a, Node *b)
+	{
+		const Point& p = a->getPosition();
+		const Point& q = b->getPosition();
+		return p.y != q.y ? p.y < q.y : p.x < q.x;
+	});
+	return result;
 }
 
 Node *NeuralNetwork::neuronAt(int x, int y)
@@ -1067,11 +1134,27 @@ int NeuralNetwork::arrange(Rectangle area)
 	}
 	columns.erase(std::remove_if(columns.begin(), columns.end(),
 		[](const std::vector<Node *>& column) { return column.empty(); }), columns.end());
-	int spacingX = arrangeSpacing((int)columns.size(), area.width, ARRANGE_MIN_LAYER_SPACING,
-		ARRANGE_MAX_LAYER_SPACING);
-	int left = snapToGrid((int)(area.x + (area.width - spacingX * ((int)columns.size() - 1)) / 2));
+	// as entradas de uma imagem, sozinhas na primeira camada, ficam em quadrado
+	// na ordem de leitura dos pixels
+	int side = getImageSide();
+	std::vector<Node *> image;
+	if(side > 0 && columns[0].size() == (size_t)(side * side))
+		image = readingOrder(Node::TypeInput);
+	int gridSize = image.empty() ? 0 : ARRANGE_PIXEL_SPACING * (side - 1);
+	int spacingX = arrangeSpacing((int)columns.size(), area.width - gridSize,
+		ARRANGE_MIN_LAYER_SPACING, ARRANGE_MAX_LAYER_SPACING);
+	int left = snapToGrid((int)(area.x + (area.width - gridSize -
+		spacingX * ((int)columns.size() - 1)) / 2));
 	std::map<Node *, Point> positions;
-	for(size_t c = 0; c < columns.size(); c++)
+	if(!image.empty())
+	{
+		int top = snapToGrid((int)(area.y + (area.height - gridSize) / 2));
+		for(size_t i = 0; i < image.size(); i++)
+			positions[image[i]] = Point(left + ARRANGE_PIXEL_SPACING * (int)(i % side),
+				top + ARRANGE_PIXEL_SPACING * (int)(i / side));
+		left += gridSize;
+	}
+	for(size_t c = image.empty() ? 0 : 1; c < columns.size(); c++)
 	{
 		std::vector<Node *>& column = columns[c];
 		// cada nó perto da altura média dos que o alimentam, para cruzar menos
@@ -1138,6 +1221,7 @@ void NeuralNetwork::clear()
 	edgeAdd->setFirst(NULL);
 	nodeMoving = NULL;
 	nodeToggle = NULL;
+	showingImage = false;
 	bDown = false;
 	bMoving = false;
 	dragging = false;
@@ -1318,7 +1402,10 @@ void NeuralNetwork::mouseRightDown(int x, int y)
 void NeuralNetwork::toggle(Node *node)
 {
 	if(node->is(Node::TypeInput))
+	{
 		((InputNode*)node)->toggleValue();
+		showingImage = false;
+	}
 	else if(node->is(Node::TypeOutput))
 		((OutputNode*)node)->toggleTarget();
 	execution.clearChanged();
@@ -1335,6 +1422,7 @@ NeuralNetwork::Request NeuralNetwork::takeRequest()
 void NeuralNetwork::setRunning(bool running)
 {
 	this->running = running;
+	showingImage = showingImage && running;
 	cancelAction();
 	execution.clearChanged();
 	if(running)
@@ -1415,6 +1503,64 @@ double NeuralNetwork::getError()
 bool NeuralNetwork::isOnTarget()
 {
 	return execution.isOnTarget();
+}
+
+int NeuralNetwork::getImageSide()
+{
+	int count = (int)readingOrder(Node::TypeInput).size();
+	int side = (int)lround(sqrt(count));
+	return side >= 2 && side * side == count ? side : 0;
+}
+
+bool NeuralNetwork::showImage(const std::vector<double>& values, int label)
+{
+	std::vector<Node *> inputs = readingOrder(Node::TypeInput);
+	for(size_t i = 0; i < inputs.size() && i < values.size(); i++)
+		inputs[i]->setValue(values[i]);
+	std::vector<Node *> outputs = readingOrder(Node::TypeOutput);
+	for(size_t i = 0; i < outputs.size(); i++)
+		((OutputNode*)outputs[i])->setTarget((int)i == label ? 1 : 0);
+	running = true;
+	showingImage = true;
+	cancelAction();
+	execution.clearChanged();
+	execution.execute();
+	return label >= 0 && label < (int)outputs.size();
+}
+
+bool NeuralNetwork::isShowingImage()
+{
+	return showingImage;
+}
+
+int NeuralNetwork::getRecognized()
+{
+	std::vector<Node *> outputs = readingOrder(Node::TypeOutput);
+	int recognized = -1;
+	for(size_t i = 0; i < outputs.size(); i++)
+	{
+		double value = outputs[i]->getValue();
+		if(!std::isfinite(value))
+			return -1;
+		if(recognized < 0 || value > outputs[recognized]->getValue())
+			recognized = (int)i;
+	}
+	return recognized;
+}
+
+int NeuralNetwork::getExpected()
+{
+	std::vector<Node *> outputs = readingOrder(Node::TypeOutput);
+	int expected = -1;
+	for(size_t i = 0; i < outputs.size(); i++)
+	{
+		if(((OutputNode*)outputs[i])->getTarget() == 0)
+			continue;
+		if(expected >= 0)
+			return -1;
+		expected = (int)i;
+	}
+	return expected;
 }
 
 bool NeuralNetwork::isModified()
@@ -1504,12 +1650,14 @@ void NeuralNetwork::saveToFile(const std::string& fileName)
 
 	if(!file)
 		throw std::runtime_error("Unable to create " + fileName + ".");
-	// 1.1 enquanto não há bias, para continuar abrindo na versão Windows
+	// 1.1 enquanto não há bias nem ReLU ou softmax, para continuar abrindo na
+	// versão Windows
 	bool hasBias = false;
 	for(it = neurons.begin(); it != neurons.end(); it++)
 	{
 		Node *node = *it;
-		if((node->is(Node::TypeNeuron) && ((NeuronNode*)node)->getBias() != 0) ||
+		if((node->is(Node::TypeNeuron) && (((NeuronNode*)node)->getBias() != 0 ||
+			((NeuronNode*)node)->getFunctionType() >= NeuronNode::Relu)) ||
 			(node->is(Node::TypeInput) && ((InputNode*)node)->isBias()))
 			hasBias = true;
 	}

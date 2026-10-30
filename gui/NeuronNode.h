@@ -19,6 +19,9 @@ public:
 		Bipolar,
 		Logistic,
 		Hiperbolic,
+		Relu,
+		// normaliza os neurônios softmax da rede juntos, as saídas deles somam 1
+		Softmax,
 		FunctionCount
 	};
 public:

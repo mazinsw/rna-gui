@@ -6,6 +6,8 @@
 #   make app       pacote build/NeuralNetwork.app (somente macOS)
 #   make run       executa a GUI
 #   make test      executa o console com testes_treinamento.txt
+#   make digitos   refaz exemplos/digitos.bin e as amostras a partir das imagens
+#                  de exemplos/digitos
 #   make clean     remove build/
 #   make distclean remove build/ e o raylib baixado
 #
@@ -82,7 +84,7 @@ CLI_SRCS  := $(CORE_SRCS) test/test_all.cpp test/test_input.cpp test/test_traini
 GUI_SRCS  := gui/main.cpp gui/ClayRaylib.cpp gui/Widgets.cpp gui/Input.cpp \
              gui/Platform.cpp gui/Resources.cpp gui/Node.cpp gui/Edge.cpp \
              gui/InputNode.cpp gui/NeuronNode.cpp gui/OutputNode.cpp gui/NeuralNetwork.cpp \
-             gui/Execution.cpp gui/Shapes.cpp gui/Icons.cpp gui/Settings.cpp
+             gui/Execution.cpp gui/Shapes.cpp gui/Icons.cpp gui/Settings.cpp gui/Pixels.cpp
 
 RES_HDRS  := $(GEN)/Roboto-Regular.ttf.h
 
@@ -92,12 +94,15 @@ ifeq ($(TARGET_OS),windows)
 GUI_RES   := $(OBJDIR)/res/windows/app.o
 endif
 
+DIGITOS_OBJS := $(OBJDIR)/tools/digitos.o $(OBJDIR)/gui/Pixels.o $(OBJDIR)/gui/Platform.o
+
 BIN2C     := $(BUILD)/bin2c$(HOST_EXE)
 GUI_BIN   := $(BUILD)/NeuralNetwork$(EXE)
 CLI_BIN   := $(BUILD)/RedesNeurais$(EXE)
+DIGITOS   := $(BUILD)/digitos$(EXE)
 APP       := $(BUILD)/NeuralNetwork.app
 
-.PHONY: all gui console raylib raylib-check app run test clean distclean
+.PHONY: all gui console raylib raylib-check app run test digitos clean distclean
 
 all: gui console
 
@@ -110,6 +115,14 @@ $(GUI_BIN): $(GUI_OBJS) $(GUI_RES)
 
 $(CLI_BIN): $(CLI_OBJS)
 	$(CXX) $(LDFLAGS) $(CLI_LDFLAGS) -o $@ $^
+
+# usa a redução de imagens da interface, para as amostras serem iguais às
+# imagens arrastadas para a janela
+$(DIGITOS): $(DIGITOS_OBJS)
+	$(CXX) $(LDFLAGS) $(CLI_LDFLAGS) -o $@ $^ $(RAYLIB_LIBS)
+
+digitos: $(DIGITOS)
+	./$(DIGITOS) exemplos/digitos exemplos/digitos.bin
 
 $(GUI_OBJS): | raylib-check
 
@@ -126,6 +139,10 @@ $(OBJDIR)/gui/%.o: gui/%.cpp
 $(OBJDIR)/%.o: %.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(OBJDIR)/tools/digitos.o: tools/digitos.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(RAYLIB_CFLAGS) $(CXXFLAGS) -c $< -o $@
 
 # ícone e informações de versão do executável
 $(OBJDIR)/res/windows/app.o: res/windows/app.rc res/img/icon.ico
@@ -192,4 +209,4 @@ clean:
 distclean: clean
 	rm -rf $(RAYLIB_DIR)
 
--include $(CLI_OBJS:.o=.d) $(GUI_OBJS:.o=.d)
+-include $(CLI_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(OBJDIR)/tools/digitos.d

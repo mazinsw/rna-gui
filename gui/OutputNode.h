@@ -29,6 +29,11 @@ public:
 		return target;
 	}
 
+	inline void setTarget(double target)
+	{
+		this->target = target;
+	}
+
 	/**
 	 * Alterna o alvo entre 0 e 1
 	 */

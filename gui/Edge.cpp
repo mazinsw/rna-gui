@@ -70,6 +70,11 @@ void Edge::drawLabel()
 	Node::drawTextCentered(weightStr, middle, ui::LabelFontSize, ui::toColor(ui::InkColor));
 }
 
+void Edge::hideLabel()
+{
+	labelBox = Rectangle{ 0, 0, 0, 0 };
+}
+
 bool Edge::IsInLabel(const Point& p)
 {
 	return CheckCollisionPointRec(Vector2{ (float)p.x, (float)p.y }, labelBox);

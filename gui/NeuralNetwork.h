@@ -66,6 +66,8 @@ private:
 	bool running;
 	// entrada ou saída que alterna o valor se o botão for solto sem arrastar
 	Node *nodeToggle;
+	// as entradas têm os pixels de uma imagem, cada saída é uma classe
+	bool showingImage;
 	int pressX, pressY;
 	Request request;
 	Execution execution;
@@ -178,6 +180,17 @@ private:
 	Node *newNode(Node::Type type);
 	void pressNode(Node *node, int x, int y);
 	void updateInfluence();
+
+	/**
+	 * Nós do tipo na ordem de leitura: de cima para baixo e, na mesma altura,
+	 * da esquerda para a direita. Sem as entradas de bias.
+	 */
+	std::vector<Node *> readingOrder(Node::Type type);
+
+	/**
+	 * Número de cada saída à direita dela, a reconhecida em destaque
+	 */
+	void drawClasses();
 
 	/**
 	 * Encerra a conexão em andamento e o arraste
@@ -354,6 +367,11 @@ public:
 	void fitView(Rectangle area);
 
 	/**
+	 * Indica se os centros dos nós estão dentro da área com a vista atual
+	 */
+	bool fitsIn(Rectangle area);
+
+	/**
 	 * Zoom e deslocamento da vista, para voltar a ela ao abrir a rede de novo
 	 */
 	float getZoom();
@@ -477,6 +495,37 @@ public:
 	bool hasCycle();
 	double getError();
 	bool isOnTarget();
+
+	/**
+	 * Lado do quadrado de pixels que as entradas de dado formam, 8 com 64
+	 * entradas, ou 0 se a quantidade não é um quadrado de pelo menos 2 x 2
+	 */
+	int getImageSide();
+
+	/**
+	 * Entra na execução com os pixels da imagem nas entradas de dado, na ordem
+	 * de leitura delas. O alvo da saída do rótulo (a primeira de cima é a 0)
+	 * fica em 1 e os das outras em 0; sem rótulo, ou com um além das saídas,
+	 * todos ficam em 0. Retorna true se o rótulo marcou um alvo.
+	 */
+	bool showImage(const std::vector<double>& values, int label);
+
+	/**
+	 * Indica se as entradas têm a imagem: a execução não foi parada e nenhuma
+	 * entrada foi alternada desde showImage
+	 */
+	bool isShowingImage();
+
+	/**
+	 * Saída de maior valor, contando de 0 na ordem de leitura, ou -1 sem
+	 * saídas ou com valores inválidos
+	 */
+	int getRecognized();
+
+	/**
+	 * Saída com o único alvo diferente de 0, ou -1
+	 */
+	int getExpected();
 };
 
 #endif /* _NEURALNETWORK_H_ */

@@ -31,6 +31,12 @@ void InputNode::draw(bool running)
 		border = ui::toColor(ui::FaintColor);
 		text = ui::toColor(ui::StatusTextColor);
 	}
+	else if(running && getValue() > 0 && getValue() < 1)
+	{
+		// pixel de uma imagem: a cor acompanha a intensidade
+		fill = ColorLerp(WHITE, ui::toColor(ui::AccentColor), (float)getValue());
+		text = getValue() >= 0.5 ? WHITE : ui::toColor(ui::AccentDarkColor);
+	}
 	else if(running && getValue() != 0)
 	{
 		fill = ui::toColor(ui::AccentColor);

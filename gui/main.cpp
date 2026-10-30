@@ -7,6 +7,7 @@
 #include "ContextMenu.h"
 #include "InlineEditor.h"
 #include "Input.h"
+#include "Pixels.h"
 #include "Platform.h"
 #include "Resources.h"
 #include "Settings.h"
@@ -46,6 +47,8 @@ private:
 	std::string message;
 	std::string status;
 	std::string errorText;
+	// saída de maior valor com uma imagem nas entradas
+	std::string resultText;
 	Vector2 mouse;
 	float renderScale;
 private:
@@ -133,6 +136,9 @@ private:
 		case Execution::NoOutput:
 			message = "Adicione uma saída para treinar a rede.";
 			break;
+		case Execution::NoTarget:
+			message = "As saídas da softmax somam 1: clique no alvo da saída certa para treinar.";
+			break;
 		}
 	}
 	/**
@@ -216,6 +222,10 @@ private:
 		{
 			neuralNetwork->loadFromFile(path);
 			neuralNetwork->keepRightOf(panelRight());
+			// a rede que não cabe em 100% aparece inteira
+			Rectangle area = editArea();
+			if(area.width > 0 && !neuralNetwork->fitsIn(area))
+				neuralNetwork->fitView(area);
 			fileName = path;
 			loadSamples(path);
 		}
@@ -235,6 +245,41 @@ private:
 		confirmDialog.show("Abrir rede", "A rede atual tem alterações não salvas que serão "
 			"perdidas.\nAbrir " + pathToUtf8(pathFromUtf8(path).filename()) + "?", "Abrir");
 	}
+	/**
+	 * Põe a imagem solta na janela nas entradas e executa a rede. O dígito que
+	 * começa o nome do arquivo marca o alvo da saída dele.
+	 */
+	void openImage(const std::string& path)
+	{
+		editor.cancel();
+		menu.close();
+		std::string name = pathToUtf8(pathFromUtf8(path).filename());
+		int side = neuralNetwork->getImageSide();
+		if(side == 0)
+		{
+			message = "Para receber a imagem " + name + " as entradas de dado precisam formar "
+				"um quadrado de pixels, como 64 para 8 x 8. Abra exemplos/digitos.bin.";
+			return;
+		}
+		std::vector<double> values;
+		try
+		{
+			values = pixels::fromFile(path, side);
+		}
+		catch (const std::exception& e)
+		{
+			messageDialog.show("Erro", std::string("Falha na leitura da imagem\n") + e.what());
+			return;
+		}
+		int label = pixels::labelOf(path);
+		std::string size = std::to_string(side) + " x " + std::to_string(side);
+		if(neuralNetwork->showImage(values, label))
+			message = name + " reduzida a " + size + " nas entradas, alvo " +
+				std::to_string(label) + ". Treinar a ensina.";
+		else
+			message = name + " reduzida a " + size + " nas entradas. Para ensinar, clique no "
+				"alvo da saída certa e em Treinar.";
+	}
 	bool isDialogVisible()
 	{
 		return messageDialog.isVisible() || confirmDialog.isVisible();
@@ -247,7 +292,11 @@ private:
 		std::string path = files.count > 0 ? files.paths[0] : "";
 		UnloadDroppedFiles(files);
 		// com um diálogo aberto o arquivo é ignorado
-		if(!path.empty() && !isDialogVisible())
+		if(path.empty() || isDialogVisible())
+			return;
+		if(pixels::isImage(path))
+			openImage(path);
+		else
 			requestOpen(path);
 	}
 	/**
@@ -409,8 +458,12 @@ private:
 	{
 		bool running = neuralNetwork->isRunning();
 		errorText.clear();
+		resultText.clear();
 		if(running && !neuralNetwork->hasCycle())
 			errorText = "Erro " + Node::formatNumber(neuralNetwork->getError(), 2);
+		int recognized = neuralNetwork->isShowingImage() ? neuralNetwork->getRecognized() : -1;
+		if(running && recognized >= 0)
+			resultText = "Reconhecido " + std::to_string(recognized);
 		if(!message.empty())
 			status = message;
 		else if(editor.isVisible())
@@ -431,6 +484,12 @@ private:
 				"Clique de novo no peso para editar. Delete exclui a conexão.";
 		else if(neuralNetwork->getSelectedBias() != NULL)
 			status = "Clique de novo no bias para editar.";
+		else if(running && neuralNetwork->isShowingImage())
+			status = "Arraste outra imagem para reconhecer. Clique no alvo da saída certa e em "
+				"Treinar para ensinar esta.";
+		else if(running && neuralNetwork->getImageSide() > 0)
+			status = "Arraste a imagem de um dígito para a janela, ou clique nas entradas e nas "
+				"saídas para alternar entre 0 e 1.";
 		else if(running)
 		{
 			int count = neuralNetwork->getSampleCount();
@@ -519,6 +578,21 @@ private:
 		{
 			CLAY_TEXT(toClayString(status), ui::textConfig(ui::LabelFontSize, ui::StatusTextColor,
 				CLAY_TEXT_WRAP_WORDS));
+			if(!resultText.empty())
+			{
+				// verde se é a saída do alvo, laranja se não, azul sem alvo
+				int expected = neuralNetwork->getExpected();
+				bool right = expected == neuralNetwork->getRecognized();
+				CLAY({ .layout = { .padding = { 8, 8, 1, 1 } },
+					.backgroundColor = expected < 0 ? ui::AccentLightHoverColor :
+						right ? ui::SuccessLightColor : ui::WarningLightColor,
+					.cornerRadius = CLAY_CORNER_RADIUS(9) })
+				{
+					CLAY_TEXT(toClayString(resultText), ui::textConfig(ui::LabelFontSize,
+						expected < 0 ? ui::AccentDarkColor : right ? ui::SuccessColor :
+						ui::WarningColor));
+				}
+			}
 			if(!errorText.empty())
 			{
 				CLAY({ .layout = { .padding = { 8, 8, 1, 1 } },

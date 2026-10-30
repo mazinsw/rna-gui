@@ -41,6 +41,8 @@ private:
 			CLAY_STRING("Bipolar"),
 			CLAY_STRING("Logística"),
 			CLAY_STRING("Hiperbólica"),
+			CLAY_STRING("ReLU"),
+			CLAY_STRING("Softmax"),
 		};
 		ui::groupTitle(CLAY_STRING("FUNÇÃO DE ATIVAÇÃO"));
 		for(int i = 0; i < NeuronNode::FunctionCount; i++)

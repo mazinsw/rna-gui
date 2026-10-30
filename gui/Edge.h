@@ -102,6 +102,11 @@ public:
 	 * Desenha o rótulo do peso, depois de todas as linhas para ficar por cima
 	 */
 	void drawLabel();
+
+	/**
+	 * Rótulo não desenhado neste quadro, que deixa de receber cliques
+	 */
+	void hideLabel();
 	virtual bool IsIn(const Point& p);
 	bool IsInLabel(const Point& p);
 

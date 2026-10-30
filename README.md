@@ -56,8 +56,8 @@ deslocamento da vista ficam em `estado.txt`, na mesma pasta. A janela volta como
 mais ligado, e a vista volta se a rede aberta ao iniciar for a última que estava aberta.
 
 O arquivo é gravado no formato 1.1 da versão Windows original enquanto nenhum bias é usado. Com bias
-em algum neurônio ou uma entrada de bias ele passa para o formato 1.2, que a versão original não
-abre. A interface lê os dois.
+em algum neurônio, uma entrada de bias ou um neurônio ReLU ou softmax ele passa para o formato 1.2,
+que a versão original não abre. A interface lê os dois.
 
 ### Editando e executando
 
@@ -80,7 +80,8 @@ peso 1.
 - Clique direito (ou duplo) no neurônio: menu com a função de ativação e "Excluir neurônio". Na
   entrada o menu escolhe o tipo, dado ou bias, e na conexão ou na saída exclui.
 - Peso e bias: o primeiro clique seleciona e o segundo (ou um clique duplo) edita no lugar. Enter
-  ou clicar fora aplica, Esc cancela.
+  ou clicar fora aplica, Esc cancela. Com mais de 100 conexões os rótulos de peso somem para não
+  cobrir a rede: clique na linha da conexão para ver o peso dela.
 - Delete exclui o nó ou a conexão selecionada.
 - Arrastar um nó, ou o início de uma camada nova, alinha o centro dele aos pontos da grade. A menos de 8
   pixels do x de outro nó ele entra na camada desse nó, e do y, na linha dele, com prioridade sobre
@@ -88,11 +89,13 @@ peso 1.
   (Option no Mac) para mover sem alinhar.
 - "Reorganizar" refaz a posição de todos os nós em camadas: as entradas na primeira, cada neurônio
   logo depois do nó mais distante que o alimenta e as saídas na última. Dentro da camada os nós
-  ficam na altura média dos que os alimentam, para as conexões cruzarem menos. Depois centraliza a
-  rede com o zoom que a mostra inteira, no máximo 100%.
+  ficam na altura média dos que os alimentam, para as conexões cruzarem menos. As entradas de uma
+  imagem (veja [Reconhecendo dígitos](#reconhecendo-dígitos)) ficam em quadrado, na ordem dos
+  pixels. Depois centraliza a rede com o zoom que a mostra inteira, no máximo 100%.
 - A roda do mouse aproxima e afasta a rede em volta do ponteiro, de 25% a 400%. Arraste o fundo
   vazio sem Shift, ou qualquer ponto com o botão do meio, para mover a rede na tela. Abrir um
-  arquivo arrastado volta a vista para 100%.
+  arquivo arrastado volta a vista para 100%, ou para o zoom que mostra a rede inteira se ela não
+  cabe.
 - Ctrl + e Ctrl - (Cmd no Mac) aumentam e diminuem o tamanho da interface, de 75% a 200%: botões,
   menus, diálogos, dicas, status e legenda. Ctrl 0 volta para 100%. A rede mantém o tamanho, que
   muda com a roda do mouse.
@@ -100,6 +103,12 @@ peso 1.
 Cada neurônio tem um bias (`b`, mostrado acima dele) somado à entrada da função de ativação, que faz
 o papel do limiar negativo. Ele começa aleatório e é treinado junto com os pesos. Para modelar o
 bias como entrada, use uma entrada do tipo bias: ela vale sempre 1 e o peso da conexão é o bias.
+
+As funções de ativação são linear, degrau, bipolar, logística, hiperbólica, ReLU (o próprio valor
+quando positivo, senão 0) e softmax. A softmax é calculada junto para todos os neurônios softmax da
+rede: cada um dá `e^x` dividido pela soma dos `e^x` de todos, então os valores somam 1 e o maior é
+a classe escolhida. No treino o erro do neurônio softmax é a diferença para o alvo, o da entropia
+cruzada, que não some quando a saída está longe do alvo como na logística.
 
 A cor e a espessura de cada conexão mostram a influência dela na saída, do cinza ao vermelho: na
 edição pelo peso, na execução pelo peso vezes o valor que passa por ela, relativos à maior da rede.
@@ -111,6 +120,7 @@ igual ao alvo.
 "Treinar" guarda a combinação da tela, os valores das entradas e os alvos das saídas, como uma
 amostra, e ajusta os pesos e os bias por retropropagação até as saídas de todas as amostras
 guardadas ficarem iguais aos alvos (no máximo 1000 iterações), destacando os valores alterados.
+Com softmax, cujas saídas somam 1, a combinação da tela sem nenhum alvo marcado não é guardada.
 Assim cada linha da tabela verdade é ensinada com um clique sem desfazer as anteriores: configure as
 entradas e os alvos e clique em "Treinar", linha a linha. Treinar de novo uma combinação já
 guardada troca os alvos dela. O treino parte dos pesos atuais e cada peso e bias tem um passo próprio
@@ -140,10 +150,46 @@ função degrau:
 - `and.txt`, `or.txt` e `xor.txt`: a mesma rede no formato do console, com as 4 amostras da tabela
   verdade: `build/RedesNeurais < exemplos/xor.txt`. O console não tem bias no neurônio, então a
   primeira entrada é o bias, sempre 1, e o peso dela faz o papel do bias.
+- `digitos.bin`: reconhece dígitos escritos à mão, veja abaixo.
 
 O bias é o limiar negativo do neurônio: no AND o neurônio dispara quando `x1 + x2 - 1,5 >= 0`, no OR
 quando `x1 + x2 - 0,5 >= 0`. O XOR não é linearmente separável e usa uma camada oculta: um neurônio
 OR, um AND e a saída `OR - AND - 0,5`.
+
+## Reconhecendo dígitos
+
+`exemplos/digitos.bin` é uma versão reduzida da rede do notebook
+[Reconhecendo Números usando Dataset MNIST](https://github.com/clebrw/Reconhecendo-Numeros-usando-Dataset-MNIST),
+que usa 784 entradas (28 x 28 pixels), 256 neurônios ReLU e 10 softmax. Aqui são 64 entradas em
+quadrado (8 x 8 pixels), 10 neurônios ReLU, 10 softmax e 10 saídas, a de cima para o dígito 0 e a de
+baixo para o 9. Ao lado ficam as 100 amostras, `digitos.amostras.txt`, feitas das imagens da pasta
+`exemplos/digitos`: 10 de cada dígito, com o dígito no começo do nome (`7_3.png`).
+
+1. Arraste `digitos.bin` para a janela, clique em "Executar" e em "Treinar". As 100 amostras são
+   aprendidas em poucas dezenas de iterações.
+2. Arraste a imagem de um dígito para a janela. As entradas mostram a imagem reduzida e a saída de
+   maior valor é o dígito reconhecido, destacado ao lado dela e no status: "Reconhecido 7", em verde
+   se é o dígito do nome do arquivo, em laranja se não é e em azul se o nome não começa com um
+   dígito.
+3. Para ensinar uma imagem reconhecida errado, clique no alvo da saída certa, se o nome não o
+   marcou, e em "Treinar". Ela entra nas amostras e "Salvar" a grava com as outras.
+
+Uma imagem pode ser arrastada em qualquer rede cujas entradas de dado formem um quadrado (64 para 8 x
+8). Os pixels vão para as entradas na ordem de leitura delas, de cima para baixo e da esquerda para a
+direita. Antes a imagem é reduzida como no MNIST: o fundo claro é invertido, para o traço escuro no
+papel ficar claro como no dataset, o contraste vai de 0 a 1 e o traço é recortado, centralizado e
+reduzido pela média dos pixels para dentro de uma borda vazia de 1 pixel. O dígito no começo do nome
+do arquivo marca o alvo da saída dele; sem ele todos os alvos ficam em 0. As imagens são lidas pelo
+raylib: PNG sempre, os outros formatos só se o raylib foi compilado com eles.
+
+Com 10 exemplos de cada dígito a rede acerta todos os que aprendeu, mas só cerca de 6 em 10 dígitos
+que nunca viu. O notebook chega a 95% porque treina com as 60 mil imagens do MNIST.
+
+`make digitos` refaz a rede, com outros pesos sorteados, e as amostras a partir das imagens da
+pasta, com a mesma redução das imagens arrastadas para a janela.
+
+As imagens são do [MNIST](https://yann.lecun.com/exdb/mnist/), de Yann LeCun, Corinna Cortes e
+Christopher J. C. Burges, licenciado em CC BY-SA 3.0, recortadas da figura do notebook.
 
 ## Console
 

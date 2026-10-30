@@ -7,6 +7,7 @@
 #include "../functions/Bipolar.h"
 #include "../functions/Logistic.h"
 #include "../functions/Hiperbolic.h"
+#include "../functions/Relu.h"
 #include <algorithm>
 #include <cmath>
 
@@ -15,12 +16,17 @@ static DegreeFunction degree;
 static BipolarFunction bipolar;
 static LogisticFunction logistic(1.0);
 static HiperbolicFunction hiperbolic(1.0);
-// mesma ordem de NeuronNode::FunctionType
-static Function* functions[] = { &linear, &degree, &bipolar, &logistic, &hiperbolic };
+static ReluFunction relu;
+// mesma ordem de NeuronNode::FunctionType; a softmax depende dos outros
+// neurônios softmax e é calculada em propagate
+static Function* functions[] = { &linear, &degree, &bipolar, &logistic, &hiperbolic, &relu,
+	NULL };
 
 /**
  * Derivada da função de ativação em função da saída y do neurônio. Degrau e
- * bipolar não têm derivada útil e usam 1, como na regra do perceptron.
+ * bipolar não têm derivada útil e usam 1, como na regra do perceptron. A
+ * softmax também usa 1: o erro dela fica sendo a diferença para o alvo, o da
+ * entropia cruzada, que não some quando a saída está longe do alvo.
  */
 static double derivative(int function, double y)
 {
@@ -28,6 +34,8 @@ static double derivative(int function, double y)
 		return y * (1 - y);
 	if(function == NeuronNode::Hiperbolic)
 		return (1 - y * y) / 2;
+	if(function == NeuronNode::Relu)
+		return y > 0 ? 1 : 0;
 	return 1;
 }
 
@@ -39,47 +47,83 @@ Execution::Execution(std::vector<Node*>& nodes, std::vector<Edge*>& edges): node
 
 void Execution::sort()
 {
-	std::map<Node*, int> state;
 	order.clear();
-	incoming.clear();
-	outgoing.clear();
+	incoming.assign(nodes.size(), std::vector<int>());
+	outgoing.assign(nodes.size(), std::vector<int>());
+	sources.clear();
+	targets.clear();
 	inputs.clear();
 	outputs.clear();
 	neurons.clear();
+	outputIndexes.clear();
+	neuronIndexes.clear();
+	softmax.clear();
 	cycle = false;
-	for(Edge* edge : edges)
+	std::map<Node*, int> index;
+	for(size_t i = 0; i < nodes.size(); i++)
+		index[nodes[i]] = (int)i;
+	for(size_t i = 0; i < edges.size(); i++)
 	{
-		incoming[edge->getSecond()].push_back(edge);
-		outgoing[edge->getFirst()].push_back(edge);
+		int source = index[edges[i]->getFirst()], target = index[edges[i]->getSecond()];
+		sources.push_back(source);
+		targets.push_back(target);
+		incoming[target].push_back((int)i);
+		outgoing[source].push_back((int)i);
 	}
-	for(Node* node : nodes)
+	for(size_t i = 0; i < nodes.size(); i++)
 	{
+		Node* node = nodes[i];
 		if(node->is(Node::TypeInput))
 			inputs.push_back(node);
 		else if(node->is(Node::TypeOutput))
+		{
 			outputs.push_back((OutputNode*)node);
+			outputIndexes.push_back((int)i);
+		}
 		else
+		{
 			neurons.push_back((NeuronNode*)node);
-		visit(node, state);
+			neuronIndexes.push_back((int)i);
+			if(isSoftmax((int)i))
+				softmax.push_back((int)i);
+		}
 	}
+	std::vector<int> state(nodes.size(), 0);
+	for(size_t i = 0; i < nodes.size(); i++)
+		visit((int)i, state);
 }
 
-void Execution::visit(Node* node, std::map<Node*, int>& state)
+bool Execution::isSoftmax(int node)
+{
+	return nodes[node]->is(Node::TypeNeuron) &&
+		((NeuronNode*)nodes[node])->getFunctionType() == NeuronNode::Softmax;
+}
+
+void Execution::visit(int node, std::vector<int>& state)
 {
 	// 1: visitando, 2: visitado
-	int& current = state[node];
-	if(current == 2)
+	if(state[node] == 2)
 		return;
-	if(current == 1)
+	if(state[node] == 1)
 	{
 		cycle = true;
 		return;
 	}
-	current = 1;
-	for(Edge* edge : incoming[node])
-		visit(edge->getFirst(), state);
-	current = 2;
-	order.push_back(node);
+	std::vector<int> group(1, node);
+	if(isSoftmax(node))
+		group = softmax;
+	for(int member : group)
+		state[member] = 1;
+	for(int member : group)
+	{
+		for(int edge : incoming[member])
+			visit(sources[edge], state);
+	}
+	for(int member : group)
+	{
+		state[member] = 2;
+		order.push_back(member);
+	}
 }
 
 bool Execution::execute()
@@ -89,21 +133,52 @@ bool Execution::execute()
 	return !cycle;
 }
 
+double Execution::sum(int node)
+{
+	double sum = 0;
+	for(int edge : incoming[node])
+		sum += edges[edge]->getWeight() * nodes[sources[edge]]->getValue();
+	return sum;
+}
+
 void Execution::propagate()
 {
-	for(Node* node : order)
+	for(int index : order)
 	{
+		Node* node = nodes[index];
 		if(node->is(Node::TypeInput))
 			continue;
-		double sum = 0;
-		for(Edge* edge : incoming[node])
-			sum += edge->getWeight() * edge->getFirst()->getValue();
-		if(node->is(Node::TypeNeuron))
+		if(!isSoftmax(index))
 		{
-			NeuronNode* neuron = (NeuronNode*)node;
-			sum = functions[neuron->getFunctionType()]->execute(sum + neuron->getBias());
+			double value = sum(index);
+			if(node->is(Node::TypeNeuron))
+			{
+				NeuronNode* neuron = (NeuronNode*)node;
+				value = functions[neuron->getFunctionType()]->execute(value + neuron->getBias());
+			}
+			node->setValue(value);
+			continue;
 		}
-		node->setValue(sum);
+		// os neurônios softmax estão juntos na ordem, o primeiro calcula todos:
+		// e^x de cada um dividido pela soma, com o maior x subtraído para e^x
+		// não estourar
+		if(index != softmax[0])
+			continue;
+		std::vector<double> values;
+		double highest = -INFINITY;
+		for(int member : softmax)
+		{
+			values.push_back(sum(member) + ((NeuronNode*)nodes[member])->getBias());
+			highest = std::max(highest, values.back());
+		}
+		double total = 0;
+		for(double& value : values)
+		{
+			value = exp(value - highest);
+			total += value;
+		}
+		for(size_t i = 0; i < softmax.size(); i++)
+			nodes[softmax[i]]->setValue(values[i] / total);
 	}
 }
 
@@ -207,11 +282,16 @@ Execution::Sample Execution::current()
 	return sample;
 }
 
+bool Execution::matches(const Sample& sample)
+{
+	return samples.empty() || (samples[0].inputs.size() == sample.inputs.size() &&
+		samples[0].targets.size() == sample.targets.size());
+}
+
 bool Execution::remember(const Sample& sample)
 {
 	// as guardadas com outras entradas ou saídas não valem mais
-	if(!samples.empty() && (samples[0].inputs.size() != sample.inputs.size() ||
-		samples[0].targets.size() != sample.targets.size()))
+	if(!matches(sample))
 		samples.clear();
 	for(Sample& other : samples)
 	{
@@ -241,12 +321,14 @@ Execution::Evaluation Execution::evaluate(std::vector<double>& gradient)
 {
 	Evaluation evaluation = { 0, 0, true };
 	gradient.assign(edges.size() + neurons.size(), 0);
+	// erro de cada nó, pelo índice
+	std::vector<double> delta(nodes.size());
 	for(const Sample& sample : samples)
 	{
 		apply(sample);
-		// erro de cada nó, das saídas para as entradas; a saída soma os nós sem
-		// função de ativação e o erro dela é a própria diferença
-		std::map<Node*, double> delta;
+		// das saídas para as entradas; a saída soma os nós sem função de
+		// ativação e o erro dela é a própria diferença
+		std::fill(delta.begin(), delta.end(), 0);
 		for(size_t i = 0; i < outputs.size(); i++)
 		{
 			double difference = sample.targets[i] - outputs[i]->getValue();
@@ -254,25 +336,25 @@ Execution::Evaluation Execution::evaluate(std::vector<double>& gradient)
 			evaluation.absolute += fabs(difference);
 			evaluation.onTarget = evaluation.onTarget &&
 				fabs(difference) < OutputNode::Tolerance;
-			delta[outputs[i]] = difference;
+			delta[outputIndexes[i]] = difference;
 		}
 		for(auto it = order.rbegin(); it != order.rend(); it++)
 		{
-			Node* node = *it;
+			Node* node = nodes[*it];
 			if(!node->is(Node::TypeNeuron))
 				continue;
 			double sum = 0;
-			for(Edge* edge : outgoing[node])
-				sum += edge->getWeight() * delta[edge->getSecond()];
-			delta[node] = sum * derivative(((NeuronNode*)node)->getFunctionType(),
+			for(int edge : outgoing[*it])
+				sum += edges[edge]->getWeight() * delta[targets[edge]];
+			delta[*it] = sum * derivative(((NeuronNode*)node)->getFunctionType(),
 				node->getValue());
 		}
 		// o peso anda no sentido do erro do destino vezes o valor da origem; o
 		// bias é o peso de uma entrada que vale sempre 1
 		for(size_t i = 0; i < edges.size(); i++)
-			gradient[i] += delta[edges[i]->getSecond()] * edges[i]->getFirst()->getValue();
+			gradient[i] += delta[targets[i]] * nodes[sources[i]]->getValue();
 		for(size_t i = 0; i < neurons.size(); i++)
-			gradient[edges.size() + i] += delta[neurons[i]];
+			gradient[edges.size() + i] += delta[neuronIndexes[i]];
 	}
 	return evaluation;
 }
@@ -304,8 +386,19 @@ Execution::TrainResult Execution::train()
 	}
 	// a amostra da tela volta para as entradas no fim
 	Sample screen = current();
-	result.samplesChanged = remember(screen);
+	// as saídas da softmax somam 1 e não chegam a todos os alvos em 0
+	bool hasTarget = std::any_of(screen.targets.begin(), screen.targets.end(),
+		[](double target) { return target != 0; });
+	if(softmax.empty() || hasTarget)
+		result.samplesChanged = remember(screen);
+	else if(!matches(screen))
+		samples.clear();
 	result.samples = (int)samples.size();
+	if(samples.empty())
+	{
+		result.status = NoTarget;
+		return result;
+	}
 	std::vector<double> start = save(), gradient;
 	Evaluation evaluation = evaluate(gradient);
 	result.errorBefore = result.errorAfter = evaluation.absolute;

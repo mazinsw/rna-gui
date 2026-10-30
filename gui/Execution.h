@@ -30,7 +30,9 @@ public:
 		// a rede já tinha pesos, bias ou valores que não são números finitos
 		Invalid,
 		HasCycle,
-		NoOutput
+		NoOutput,
+		// com softmax e nenhum alvo marcado na tela não há o que treinar
+		NoTarget
 	};
 
 	struct TrainResult
@@ -81,25 +83,51 @@ private:
 private:
 	std::vector<Node*>& nodes;
 	std::vector<Edge*>& edges;
-	// nós em ordem topológica, cada um depois dos que o alimentam
-	std::vector<Node*> order;
-	std::map<Node*, std::vector<Edge*> > incoming;
-	std::map<Node*, std::vector<Edge*> > outgoing;
+	// índices em nodes dos nós em ordem topológica, cada um depois dos que o
+	// alimentam
+	std::vector<int> order;
+	// índices das conexões que chegam e que saem de cada nó
+	std::vector<std::vector<int> > incoming;
+	std::vector<std::vector<int> > outgoing;
+	// índices da origem e do destino de cada conexão
+	std::vector<int> sources;
+	std::vector<int> targets;
 	// nós de cada tipo na ordem da lista
 	std::vector<Node*> inputs;
 	std::vector<OutputNode*> outputs;
 	std::vector<NeuronNode*> neurons;
+	// índices das saídas e dos neurônios acima
+	std::vector<int> outputIndexes;
+	std::vector<int> neuronIndexes;
+	// índices dos neurônios softmax, calculados juntos
+	std::vector<int> softmax;
 	std::vector<Sample> samples;
 	bool cycle;
 private:
 	void sort();
-	void visit(Node* node, std::map<Node*, int>& state);
+
+	/**
+	 * Põe o nó na ordem depois dos que o alimentam. Os neurônios softmax entram
+	 * juntos, depois de tudo o que alimenta qualquer um deles.
+	 */
+	void visit(int node, std::vector<int>& state);
+	bool isSoftmax(int node);
+
+	/**
+	 * Soma dos valores que chegam ao nó, cada um vezes o peso da conexão
+	 */
+	double sum(int node);
 
 	/**
 	 * Calcula o valor de cada neurônio e saída na ordem já montada
 	 */
 	void propagate();
 	bool hasOutput();
+
+	/**
+	 * Indica se a amostra tem as mesmas entradas e saídas das guardadas
+	 */
+	bool matches(const Sample& sample);
 
 	/**
 	 * Pesos das conexões seguidos dos bias dos neurônios, na ordem das listas
@@ -176,7 +204,8 @@ public:
 	 * e os bias alterados. Cada peso e bias tem um passo próprio (Rprop), que
 	 * cresce enquanto o sentido do ajuste se mantém e cai à metade quando ele
 	 * troca. A rede termina com os melhores pesos encontrados, nunca pior do
-	 * que começou.
+	 * que começou. Com softmax, cujas saídas somam 1, a amostra atual sem
+	 * nenhum alvo diferente de 0 não é guardada.
 	 */
 	TrainResult train();
 

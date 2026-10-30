@@ -194,9 +194,21 @@ namespace icons
 		case 3:
 			c.curve({ 2, 16 }, { 12, 16 }, { 18, 4 }, { 28, 4 });
 			break;
-		default:
+		case 4:
 			c.curve({ 2, 18 }, { 12, 18 }, { 18, 2 }, { 28, 2 });
 			break;
+		case 5:
+			c.lines({ { 3, 10 }, { 15, 10 }, { 27, 2 } });
+			break;
+		default:
+		{
+			// probabilidades que somam 1: uma barra alta e duas baixas
+			Canvas bars(bounds, Vector2{ 30, 20 }, 1, color);
+			bars.box(5, 13, 5, 5, 1, true);
+			bars.box(12.5f, 3, 5, 15, 1, true);
+			bars.box(20, 10, 5, 8, 1, true);
+			break;
+		}
 		}
 	}
 
