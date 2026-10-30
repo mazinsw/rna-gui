@@ -7,20 +7,33 @@
 #include <stdexcept>
 #include <stdint.h>
 #include <string.h>
-#define RN_SIGN "1.1"
-#define RN_SIGN_BIAS "1.2"
+#include <string>
 
 /*
- * Formato do arquivo, little-endian com tamanhos fixos para ser o mesmo em
- * qualquer plataforma. A versão 1.1 é a gravada pela versão Windows 32 bits:
- * sign[3] neuronCount:u32 edgeCount:u32
- * neuronCount x (type:i32 function:i32 x:i32 y:i32)
+ * Formato 2.0 do arquivo, little-endian com tamanhos fixos para ser o mesmo em
+ * qualquer plataforma:
+ * sign[3] inputs:u32 side:u32 layerCount:u32
+ * layerCount x (size:u32 function:i32 beta:f32
+ *               weights:f32[inputCount x size] bias:f32[size])
+ * Os pesos ficam na ordem de Layer::weights, os de cada entrada juntos.
+ *
+ * Os formatos 1.1 e 1.2 são os da rede em grafo, a 1.1 gravada pela versão
+ * Windows 32 bits:
+ * sign[3] nodeCount:u32 edgeCount:u32
+ * nodeCount x (type:i32 function:i32 x:i32 y:i32 [bias:f64 na 1.2])
  * edgeCount x (first:i32 second:i32 weight:f64)
- * A versão 1.2 acrescenta bias:f64 a cada nó e usa function da entrada para
- * marcar a entrada de bias (1). É gravada só quando a rede usa algum bias ou
- * uma função que a versão Windows não tem (ReLU e softmax), as demais
- * continuam em 1.1.
+ * O tipo é 1 no neurônio, 2 na entrada e 3 na saída; na 1.2 a função da
+ * entrada é 1 na entrada de bias, que vale sempre 1.
  */
+#define SIGN "2.0"
+#define GRAPH_SIGN "1.1"
+#define GRAPH_SIGN_BIAS "1.2"
+// tipos de nó da rede em grafo
+#define GRAPH_NEURON 1
+#define GRAPH_INPUT 2
+#define GRAPH_OUTPUT 3
+// a partir de 4 x 4 entradas em quadrado a rede antiga recebe imagens
+#define GRAPH_MIN_IMAGE_SIDE 4
 
 /**
  * Caminho em UTF-8, para as mensagens
@@ -29,29 +42,6 @@ static std::string utf8(const std::filesystem::path& path)
 {
 	std::u8string str = path.u8string();
 	return std::string(str.begin(), str.end());
-}
-
-static void writeUInt32(std::ofstream& file, uint32_t value)
-{
-	unsigned char bytes[4];
-	for(int i = 0; i < 4; i++)
-		bytes[i] = (unsigned char)(value >> (i * 8));
-	file.write((const char*)bytes, sizeof(bytes));
-}
-
-static void writeInt32(std::ofstream& file, int32_t value)
-{
-	writeUInt32(file, (uint32_t)value);
-}
-
-static void writeDouble(std::ofstream& file, double value)
-{
-	uint64_t bits;
-	unsigned char bytes[8];
-	memcpy(&bits, &value, sizeof(bits));
-	for(int i = 0; i < 8; i++)
-		bytes[i] = (unsigned char)(bits >> (i * 8));
-	file.write((const char*)bytes, sizeof(bytes));
 }
 
 static void readBytes(std::ifstream& file, unsigned char* bytes, size_t count)
@@ -88,26 +78,67 @@ static double readDouble(std::ifstream& file)
 	return value;
 }
 
+/**
+ * Lê count floats de uma vez
+ */
+static void readFloats(std::ifstream& file, std::vector<float>& values, size_t count)
+{
+	std::vector<unsigned char> bytes(count * 4);
+	readBytes(file, bytes.data(), bytes.size());
+	values.resize(count);
+	for(size_t i = 0; i < count; i++)
+	{
+		uint32_t bits = 0;
+		for(int b = 0; b < 4; b++)
+			bits |= (uint32_t)bytes[i * 4 + b] << (b * 8);
+		memcpy(&values[i], &bits, sizeof(float));
+	}
+}
+
+static void writeUInt32(std::ofstream& file, uint32_t value)
+{
+	unsigned char bytes[4];
+	for(int i = 0; i < 4; i++)
+		bytes[i] = (unsigned char)(value >> (i * 8));
+	file.write((const char*)bytes, sizeof(bytes));
+}
+
+static void writeFloats(std::ofstream& file, const float* values, size_t count)
+{
+	std::vector<unsigned char> bytes(count * 4);
+	for(size_t i = 0; i < count; i++)
+	{
+		uint32_t bits;
+		memcpy(&bits, &values[i], sizeof(bits));
+		for(int b = 0; b < 4; b++)
+			bytes[i * 4 + b] = (unsigned char)(bits >> (b * 8));
+	}
+	file.write((const char*)bytes.data(), bytes.size());
+}
+
 Network::Network()
 {
-	cycle = false;
+	inputs = 0;
+	side = 0;
 }
 
-Network::Node Network::node(int type, int function)
+int Network::inputCount(int layer) const
 {
-	return Node{ type, function, 1, 0, false, 0, 0, 0, 0, false };
+	return layer == 0 ? inputs : layers[layer - 1].size;
 }
 
-bool Network::canConnect(int source, int target)
+int Network::outputs() const
 {
-	if(source == Input && (target == Input || target == Output))
-		return false;
-	if(source == Output && (target == Output || target == Input))
-		return false;
-	return true;
+	return layers.empty() ? 0 : layers.back().size;
 }
 
-double Network::activate(int function, double beta, double x)
+Network::Layer Network::layer(int inputs, int size, int function)
+{
+	return Layer{ size, function, 1, std::vector<float>((size_t)inputs * size, 0),
+		std::vector<float>(size, 0) };
+}
+
+float Network::activate(int function, float beta, float x)
 {
 	switch(function)
 	{
@@ -116,11 +147,11 @@ double Network::activate(int function, double beta, double x)
 	case Bipolar:
 		return x >= 0 ? 1 : -1;
 	case Logistic:
-		return 1.0 / (1.0 + pow(M_E, - beta * x));
+		return 1 / (1 + expf(-beta * x));
 	case Hiperbolic:
 		// (1 - e^(-beta x)) / (1 + e^(-beta x)) sem estourar: e^(-beta x) vira
 		// infinito para x muito negativo e a divisão daria nan
-		return tanh(beta * x / 2);
+		return tanhf(beta * x / 2);
 	case Relu:
 		return x > 0 ? x : 0;
 	default:
@@ -128,7 +159,36 @@ double Network::activate(int function, double beta, double x)
 	}
 }
 
-double Network::derivative(int function, double beta, double y)
+void Network::activate(const Layer& layer, float* values, int count)
+{
+	size_t total = (size_t)count * layer.size;
+	if(layer.function != Softmax)
+	{
+		if(layer.function == Linear)
+			return;
+		for(size_t i = 0; i < total; i++)
+			values[i] = activate(layer.function, layer.beta, values[i]);
+		return;
+	}
+	// e^x de cada um dividido pela soma, com o maior x subtraído para e^x não
+	// estourar
+	for(size_t row = 0; row < total; row += layer.size)
+	{
+		float *value = values + row;
+		float highest = -INFINITY, sum = 0;
+		for(int j = 0; j < layer.size; j++)
+			highest = std::max(highest, value[j]);
+		for(int j = 0; j < layer.size; j++)
+		{
+			value[j] = expf(value[j] - highest);
+			sum += value[j];
+		}
+		for(int j = 0; j < layer.size; j++)
+			value[j] /= sum;
+	}
+}
+
+float Network::derivative(int function, float beta, float y)
 {
 	if(function == Logistic)
 		return beta * y * (1 - y);
@@ -139,174 +199,151 @@ double Network::derivative(int function, double beta, double y)
 	return 1;
 }
 
-void Network::sort()
+void Network::forward(const float* input, int count, std::vector<std::vector<float> >& values) const
 {
-	order.clear();
-	inputs.clear();
-	outputs.clear();
-	neurons.clear();
-	softmax.clear();
-	cycle = false;
-	// cada nó guarda o fim das suas conexões e depois o começo
-	incomingStart.assign(nodes.size() + 1, 0);
-	outgoingStart.assign(nodes.size() + 1, 0);
-	for(const Edge& edge : edges)
+	values.resize(layers.size());
+	const float* in = input;
+	for(size_t l = 0; l < layers.size(); l++)
 	{
-		incomingStart[edge.target + 1]++;
-		outgoingStart[edge.source + 1]++;
-	}
-	for(size_t i = 0; i < nodes.size(); i++)
-	{
-		incomingStart[i + 1] += incomingStart[i];
-		outgoingStart[i + 1] += outgoingStart[i];
-	}
-	incomingEdges.assign(edges.size(), 0);
-	outgoingEdges.assign(edges.size(), 0);
-	std::vector<int> incomingNext(incomingStart.begin(), incomingStart.end() - 1);
-	std::vector<int> outgoingNext(outgoingStart.begin(), outgoingStart.end() - 1);
-	for(size_t i = 0; i < edges.size(); i++)
-	{
-		incomingEdges[incomingNext[edges[i].target]++] = (int)i;
-		outgoingEdges[outgoingNext[edges[i].source]++] = (int)i;
-	}
-	for(size_t i = 0; i < nodes.size(); i++)
-	{
-		if(nodes[i].type == Input)
-			inputs.push_back((int)i);
-		else if(nodes[i].type == Output)
-			outputs.push_back((int)i);
-		else
+		const Layer& layer = layers[l];
+		int size = layer.size, k = inputCount((int)l);
+		values[l].resize((size_t)count * size);
+		float* out = values[l].data();
+		for(int s = 0; s < count; s++)
 		{
-			neurons.push_back((int)i);
-			if(isSoftmax((int)i))
-				softmax.push_back((int)i);
+			float* sum = out + (size_t)s * size;
+			const float* x = in + (size_t)s * k;
+			std::copy(layer.bias.begin(), layer.bias.end(), sum);
+			for(int i = 0; i < k; i++)
+			{
+				// as entradas em 0, a maior parte dos pixels de uma imagem, não
+				// somam nada
+				float value = x[i];
+				if(value == 0)
+					continue;
+				const float* weight = layer.weights.data() + (size_t)i * size;
+				for(int j = 0; j < size; j++)
+					sum[j] += value * weight[j];
+			}
+		}
+		activate(layer, out, count);
+		in = out;
+	}
+}
+
+std::vector<float> Network::run(const std::vector<float>& input) const
+{
+	if(layers.empty())
+		return std::vector<float>();
+	std::vector<std::vector<float> > values;
+	forward(input.data(), 1, values);
+	return values.back();
+}
+
+float Network::randomWeight(std::mt19937& random, int inputs, int size)
+{
+	// a soma de muitas entradas com pesos grandes saturaria a função
+	double range = std::min(1.0, sqrt(6.0 / std::max(1, inputs + size)));
+	int steps = std::max(1, (int)(range * 100));
+	std::uniform_int_distribution<int> distribution(-steps, steps);
+	return distribution(random) / 100.0f;
+}
+
+void Network::randomize(std::mt19937& random)
+{
+	for(size_t l = 0; l < layers.size(); l++)
+	{
+		Layer& layer = layers[l];
+		int k = inputCount((int)l);
+		for(float& weight : layer.weights)
+			weight = randomWeight(random, k, layer.size);
+		for(float& bias : layer.bias)
+			bias = randomWeight(random, k, layer.size);
+	}
+}
+
+bool Network::isFinite() const
+{
+	for(const Layer& layer : layers)
+	{
+		for(float weight : layer.weights)
+		{
+			if(!std::isfinite(weight))
+				return false;
+		}
+		for(float bias : layer.bias)
+		{
+			if(!std::isfinite(bias))
+				return false;
 		}
 	}
-	std::vector<int> state(nodes.size(), 0);
-	for(size_t i = 0; i < nodes.size(); i++)
-		visit((int)i, state);
+	return true;
 }
 
-bool Network::isSoftmax(int node)
+void Network::resizeInputs(int index, int count, std::mt19937& random)
 {
-	return nodes[node].type == Neuron && nodes[node].function == Softmax;
+	Layer& layer = layers[index];
+	size_t old = layer.weights.size();
+	layer.weights.resize((size_t)count * layer.size);
+	for(size_t i = old; i < layer.weights.size(); i++)
+		layer.weights[i] = randomWeight(random, count, layer.size);
 }
 
-void Network::visit(int node, std::vector<int>& state)
+void Network::resize(int index, int size, std::mt19937& random)
 {
-	// 1: visitando, 2: visitado
-	if(state[node] == 2)
+	Layer& layer = layers[index];
+	int k = inputCount(index);
+	std::vector<float> weights((size_t)k * size);
+	for(int i = 0; i < k; i++)
+	{
+		for(int j = 0; j < size; j++)
+			weights[(size_t)i * size + j] = j < layer.size ? layer.weights[(size_t)i * layer.size + j] :
+				randomWeight(random, k, size);
+	}
+	layer.weights = weights;
+	for(int j = layer.size; j < size; j++)
+		layer.bias.push_back(randomWeight(random, k, size));
+	layer.bias.resize(size);
+	layer.size = size;
+	if(index + 1 < (int)layers.size())
+		resizeInputs(index + 1, size, random);
+}
+
+void Network::setInputs(int count, int side, std::mt19937& random)
+{
+	inputs = count;
+	this->side = side;
+	if(!layers.empty())
+		resizeInputs(0, count, random);
+}
+
+void Network::insertLayer(int index, int size, int function, std::mt19937& random)
+{
+	layers.insert(layers.begin() + index, layer(inputCount(index), size, function));
+	// a seguinte recebia de outra camada, os pesos dela não valem mais
+	for(int l = index; l <= index + 1 && l < (int)layers.size(); l++)
+	{
+		Layer& layer = layers[l];
+		layer.weights.assign((size_t)inputCount(l) * layer.size, 0);
+		for(float& weight : layer.weights)
+			weight = randomWeight(random, inputCount(l), layer.size);
+		if(l == index)
+		{
+			for(float& bias : layer.bias)
+				bias = randomWeight(random, inputCount(l), layer.size);
+		}
+	}
+}
+
+void Network::removeLayer(int index, std::mt19937& random)
+{
+	layers.erase(layers.begin() + index);
+	if(index >= (int)layers.size())
 		return;
-	if(state[node] == 1)
-	{
-		cycle = true;
-		return;
-	}
-	std::vector<int> group(1, node);
-	if(isSoftmax(node))
-		group = softmax;
-	for(int member : group)
-		state[member] = 1;
-	for(int member : group)
-	{
-		for(int i = incomingStart[member]; i < incomingStart[member + 1]; i++)
-			visit(edges[incomingEdges[i]].source, state);
-	}
-	for(int member : group)
-	{
-		state[member] = 2;
-		order.push_back(member);
-	}
-}
-
-double Network::sum(int node)
-{
-	double sum = 0;
-	for(int i = incomingStart[node]; i < incomingStart[node + 1]; i++)
-	{
-		const Edge& edge = edges[incomingEdges[i]];
-		sum += edge.weight * nodes[edge.source].value;
-	}
-	return sum;
-}
-
-void Network::propagate()
-{
-	for(int index : order)
-	{
-		Node& node = nodes[index];
-		if(node.type == Input)
-			continue;
-		if(!isSoftmax(index))
-		{
-			double value = sum(index);
-			if(node.type == Neuron)
-				value = activate(node.function, node.beta, value + node.bias);
-			node.value = value;
-			continue;
-		}
-		// os neurônios softmax estão juntos na ordem, o primeiro calcula todos:
-		// e^x de cada um dividido pela soma, com o maior x subtraído para e^x
-		// não estourar
-		if(index != softmax[0])
-			continue;
-		std::vector<double> values;
-		double highest = -INFINITY;
-		for(int member : softmax)
-		{
-			values.push_back(sum(member) + nodes[member].bias);
-			highest = std::max(highest, values.back());
-		}
-		double total = 0;
-		for(double& value : values)
-		{
-			value = exp(value - highest);
-			total += value;
-		}
-		for(size_t i = 0; i < softmax.size(); i++)
-			nodes[softmax[i]].value = values[i] / total;
-	}
-}
-
-bool Network::execute()
-{
-	sort();
-	propagate();
-	return !cycle;
-}
-
-bool Network::hasCycle()
-{
-	return cycle;
-}
-
-std::vector<bool> Network::isTrainable()
-{
-	std::vector<int> count(nodes.size(), 0);
-	for(const Edge& edge : edges)
-		count[edge.target]++;
-	std::vector<bool> trainable;
-	for(const Edge& edge : edges)
-	{
-		const Node& target = nodes[edge.target];
-		trainable.push_back(target.type == Neuron ||
-			(target.type == Output && count[edge.target] > 1));
-	}
-	return trainable;
-}
-
-std::vector<int> Network::readingOrder(const std::vector<std::pair<int, int> >& positions)
-{
-	std::vector<int> result;
-	for(size_t i = 0; i < positions.size(); i++)
-		result.push_back((int)i);
-	std::stable_sort(result.begin(), result.end(), [&](int a, int b)
-	{
-		const std::pair<int, int>& p = positions[a];
-		const std::pair<int, int>& q = positions[b];
-		return p.second != q.second ? p.second < q.second : p.first < q.first;
-	});
-	return result;
+	Layer& layer = layers[index];
+	layer.weights.assign((size_t)inputCount(index) * layer.size, 0);
+	for(float& weight : layer.weights)
+		weight = randomWeight(random, inputCount(index), layer.size);
 }
 
 int Network::imageSide(int count)
@@ -315,106 +352,87 @@ int Network::imageSide(int count)
 	return side >= 2 && side * side == count ? side : 0;
 }
 
-std::vector<int> Network::readingOrder(int type)
+/**
+ * Lê a rede no formato 2.0, depois da assinatura
+ */
+static Network read(std::ifstream& file, uintmax_t fileSize)
 {
-	std::vector<int> indexes;
-	std::vector<std::pair<int, int> > positions;
-	for(size_t i = 0; i < nodes.size(); i++)
+	Network network;
+	network.inputs = (int)readUInt32(file);
+	network.side = (int)readUInt32(file);
+	uint32_t count = readUInt32(file);
+	if(network.inputs < 0 || network.side < 0 || (network.side > 0 &&
+		(int64_t)network.side * network.side != network.inputs))
+		throw std::runtime_error("Invalid number of inputs.");
+	for(uint32_t l = 0; l < count; l++)
 	{
-		if(nodes[i].type != type || nodes[i].biasInput)
-			continue;
-		indexes.push_back((int)i);
-		positions.push_back(std::make_pair(nodes[i].x, nodes[i].y));
+		int size = (int)readUInt32(file);
+		int function = readInt32(file);
+		std::vector<float> beta;
+		readFloats(file, beta, 1);
+		int k = network.inputCount((int)l);
+		// um tamanho além do arquivo daria uma alocação enorme antes do fim dele
+		if(size < 1 || (uintmax_t)k * size * 4 > fileSize)
+			throw std::runtime_error("Invalid layer size.");
+		if(function < 0 || function >= Network::FunctionCount)
+			throw std::runtime_error("Invalid activation function.");
+		Network::Layer layer = Network::layer(0, size, function);
+		layer.beta = beta[0];
+		readFloats(file, layer.weights, (size_t)k * size);
+		readFloats(file, layer.bias, size);
+		network.layers.push_back(layer);
 	}
-	std::vector<int> result;
-	for(int i : readingOrder(positions))
-		result.push_back(indexes[i]);
-	return result;
+	return network;
 }
 
-int Network::getImageSide()
+/**
+ * Lê a rede em grafo dos formatos 1.1 e 1.2, depois da assinatura, e a
+ * converte em camadas
+ */
+static Network readGraph(std::ifstream& file, bool hasBias)
 {
-	return imageSide((int)readingOrder(Input).size());
-}
-
-bool Network::showImage(const std::vector<double>& values, int label)
-{
-	std::vector<int> pixels = readingOrder(Input);
-	for(size_t i = 0; i < pixels.size() && i < values.size(); i++)
-		nodes[pixels[i]].value = values[i];
-	std::vector<int> classes = readingOrder(Output);
-	for(size_t i = 0; i < classes.size(); i++)
-		nodes[classes[i]].target = (int)i == label ? 1 : 0;
-	execute();
-	return label >= 0 && label < (int)classes.size();
-}
-
-int Network::getRecognized()
-{
-	std::vector<int> classes = readingOrder(Output);
-	int recognized = -1;
-	for(size_t i = 0; i < classes.size(); i++)
+	struct Node
 	{
-		double value = nodes[classes[i]].value;
-		if(!std::isfinite(value))
-			return -1;
-		if(recognized < 0 || value > nodes[classes[recognized]].value)
-			recognized = (int)i;
-	}
-	return recognized;
-}
-
-double Network::getOutputValue(int output)
-{
-	return nodes[readingOrder(Output)[output]].value;
-}
-
-Network Network::load(const std::filesystem::path& path)
-{
-	std::ifstream file(path, std::ios::binary);
-	unsigned char ver[4];
-	if(!file)
-		throw std::runtime_error("Unable to open " + utf8(path) + ".");
-	ver[3] = '\0';
-	readBytes(file, ver, 3); // sign
-	bool hasBias = strcmp((const char*)ver, RN_SIGN_BIAS) == 0;
-	if(!hasBias && strcmp((const char*)ver, RN_SIGN) != 0)
+		int type;
+		int function;
+		double bias;
+		bool biasInput;
+		// camada do neurônio, de 1 em diante, 0 ainda não calculada e -1
+		// calculando
+		int layer;
+		// posição na camada ou nas entradas, -1 na entrada de bias
+		int index;
+	};
+	struct Edge
 	{
-		if(!isprint(ver[0]) || !isprint(ver[1]) || !isprint(ver[2]))
-			throw std::runtime_error("Not a neural network file.");
-		throw std::runtime_error(std::string("Version ") + (const char*)ver +
-			" not supported, required " RN_SIGN " or " RN_SIGN_BIAS ".");
-	}
+		int source, target;
+		double weight;
+	};
 	uint32_t nodeCount = readUInt32(file); // neuron count
 	uint32_t edgeCount = readUInt32(file); // edge count
-	Network network;
+	std::vector<Node> nodes;
 	for(uint32_t i = 0; i < nodeCount; i++)
 	{
-		int type = readInt32(file); // type, 1 -> Neuron, 2 -> Input, 3 ->Output
-		int function = readInt32(file); // activation function
-		Node node = Network::node(type);
-		node.x = readInt32(file); // x position
-		node.y = readInt32(file); // y position
-		double bias = hasBias ? readDouble(file) : 0; // neuron bias
-		if(type == Neuron)
-		{
-			if(function < 0 || function >= FunctionCount)
-				throw std::runtime_error("Invalid activation function.");
-			node.function = function;
-			node.bias = bias;
-		}
+		Node node = { readInt32(file), readInt32(file), 0, false, 0, -1 };
+		readInt32(file); // x position
+		readInt32(file); // y position
+		node.bias = hasBias ? readDouble(file) : 0;
+		if(node.type == GRAPH_NEURON && (node.function < 0 || node.function >= Network::FunctionCount))
+			throw std::runtime_error("Invalid activation function.");
 		// a 1.1 não marca entradas de bias
-		else if(type == Input && hasBias)
+		if(node.type == GRAPH_INPUT && hasBias)
 		{
-			if(function != 0 && function != 1)
+			if(node.function != 0 && node.function != 1)
 				throw std::runtime_error("Invalid input kind.");
-			node.biasInput = function == 1;
-			node.value = node.biasInput ? 1 : 0;
+			node.biasInput = node.function == 1;
 		}
-		else if(type != Input)
-			node.type = Output;
-		network.nodes.push_back(node);
+		else if(node.type != GRAPH_NEURON && node.type != GRAPH_INPUT)
+			node.type = GRAPH_OUTPUT;
+		nodes.push_back(node);
 	}
+	// as ligações que a rede em grafo ignorava: de um nó a ele mesmo,
+	// repetidas e entre entradas e saídas
+	std::vector<Edge> edges;
 	std::set<std::pair<int, int> > linked;
 	for(uint32_t i = 0; i < edgeCount; i++)
 	{
@@ -424,48 +442,195 @@ Network Network::load(const std::filesystem::path& path)
 		if(first < 1 || first > (int)nodeCount || second < 1 || second > (int)nodeCount)
 			throw std::runtime_error("Invalid node id.");
 		int source = first - 1, target = second - 1;
+		int from = nodes[source].type, to = nodes[target].type;
+		// a ligação que chega numa entrada também não mudava nada
 		if(source == target || !linked.insert(std::make_pair(source, target)).second ||
-			!canConnect(network.nodes[source].type, network.nodes[target].type))
+			(from != GRAPH_NEURON && to != GRAPH_NEURON) || to == GRAPH_INPUT)
 			continue;
-		network.edges.push_back(Edge{ source, target, weight, false });
+		if(from == GRAPH_OUTPUT)
+			throw std::runtime_error("Not a layered network: an output feeds a neuron.");
+		edges.push_back(Edge{ source, target, weight });
+	}
+	// camada do neurônio: uma depois da mais alta dos neurônios que o
+	// alimentam
+	std::vector<std::vector<int> > sources(nodes.size());
+	for(const Edge& edge : edges)
+	{
+		if(nodes[edge.source].type == GRAPH_NEURON)
+			sources[edge.target].push_back(edge.source);
+	}
+	int layerCount = 0;
+	for(size_t n = 0; n < nodes.size(); n++)
+	{
+		if(nodes[n].type != GRAPH_NEURON || nodes[n].layer > 0)
+			continue;
+		// em profundidade sem recursão: a pilha guarda o nó e a próxima fonte
+		std::vector<std::pair<int, size_t> > stack(1, std::make_pair((int)n, (size_t)0));
+		nodes[n].layer = -1;
+		while(!stack.empty())
+		{
+			int node = stack.back().first;
+			size_t& next = stack.back().second;
+			if(next < sources[node].size())
+			{
+				int source = sources[node][next++];
+				if(nodes[source].layer < 0)
+					throw std::runtime_error("Not a layered network: it has a cycle.");
+				if(nodes[source].layer == 0)
+				{
+					nodes[source].layer = -1;
+					stack.push_back(std::make_pair(source, (size_t)0));
+				}
+				continue;
+			}
+			int layer = 1;
+			for(int source : sources[node])
+				layer = std::max(layer, nodes[source].layer + 1);
+			nodes[node].layer = layer;
+			layerCount = std::max(layerCount, layer);
+			stack.pop_back();
+		}
+	}
+	Network network;
+	std::vector<int> layerSizes(layerCount + 1, 0);
+	std::vector<int> outputs;
+	for(size_t n = 0; n < nodes.size(); n++)
+	{
+		Node& node = nodes[n];
+		if(node.type == GRAPH_INPUT && !node.biasInput)
+			node.index = network.inputs++;
+		else if(node.type == GRAPH_NEURON)
+			node.index = layerSizes[node.layer]++;
+		else if(node.type == GRAPH_OUTPUT)
+			outputs.push_back((int)n);
+	}
+	if(network.inputs >= GRAPH_MIN_IMAGE_SIDE * GRAPH_MIN_IMAGE_SIDE)
+		network.side = Network::imageSide(network.inputs);
+	for(int l = 1; l <= layerCount; l++)
+	{
+		int function = -1;
+		for(const Node& node : nodes)
+		{
+			if(node.type != GRAPH_NEURON || node.layer != l)
+				continue;
+			if(function >= 0 && node.function != function)
+				throw std::runtime_error("Not a layered network: the neurons of layer " +
+					std::to_string(l) + " have different activation functions.");
+			function = node.function;
+		}
+		network.layers.push_back(Network::layer(network.inputCount(l - 1), layerSizes[l], function));
+	}
+	for(const Node& node : nodes)
+	{
+		if(node.type == GRAPH_NEURON)
+			network.layers[node.layer - 1].bias[node.index] = (float)node.bias;
+	}
+	// cada saída repassa o valor de um neurônio da última camada, com peso 1 e
+	// todos com saída, ou uma camada linear soma o que chega nelas
+	std::vector<int> fed(nodes.size(), 0);
+	bool direct = layerCount > 0 && (int)outputs.size() == layerSizes[layerCount];
+	for(const Edge& edge : edges)
+	{
+		const Node& source = nodes[edge.source];
+		if(nodes[edge.target].type != GRAPH_OUTPUT)
+			continue;
+		if(source.layer != layerCount)
+			throw std::runtime_error("Not a layered network: an output is fed by a neuron "
+				"outside the last layer.");
+		direct = direct && edge.weight == 1 && fed[edge.source] == 0;
+		fed[edge.source]++;
+		fed[edge.target]++;
+	}
+	for(int output : outputs)
+		direct = direct && fed[output] == 1;
+	if(!outputs.empty() && !direct)
+		network.layers.push_back(Network::layer(network.inputCount(layerCount), (int)outputs.size(),
+			Network::Linear));
+	// a camada de saída na ordem das saídas
+	std::vector<int> order(outputs.size());
+	for(size_t o = 0; o < outputs.size(); o++)
+		nodes[outputs[o]].index = (int)o;
+	for(const Edge& edge : edges)
+	{
+		const Node& source = nodes[edge.source];
+		const Node& target = nodes[edge.target];
+		if(source.biasInput)
+			network.layers[target.layer - 1].bias[target.index] += (float)edge.weight;
+		else if(source.type == GRAPH_INPUT)
+		{
+			if(target.layer != 1)
+				throw std::runtime_error("Not a layered network: an input feeds a neuron outside "
+					"the first layer.");
+			Network::Layer& layer = network.layers[0];
+			layer.weights[(size_t)source.index * layer.size + target.index] = (float)edge.weight;
+		}
+		else if(target.type == GRAPH_NEURON)
+		{
+			if(target.layer != source.layer + 1)
+				throw std::runtime_error("Not a layered network: a connection skips a layer.");
+			Network::Layer& layer = network.layers[target.layer - 1];
+			layer.weights[(size_t)source.index * layer.size + target.index] = (float)edge.weight;
+		}
+		else if(direct)
+			order[target.index] = source.index;
+		else
+		{
+			Network::Layer& layer = network.layers.back();
+			layer.weights[(size_t)source.index * layer.size + target.index] = (float)edge.weight;
+		}
+	}
+	if(direct)
+	{
+		// reordena os neurônios da última camada e as linhas dos pesos deles
+		Network::Layer& last = network.layers.back();
+		Network::Layer sorted = last;
+		int k = network.inputCount((int)network.layers.size() - 1);
+		for(size_t o = 0; o < order.size(); o++)
+		{
+			sorted.bias[o] = last.bias[order[o]];
+			for(int i = 0; i < k; i++)
+				sorted.weights[(size_t)i * last.size + o] = last.weights[(size_t)i * last.size + order[o]];
+		}
+		last = sorted;
 	}
 	return network;
 }
 
-void Network::save(const std::filesystem::path& path)
+Network Network::load(const std::filesystem::path& path)
+{
+	std::ifstream file(path, std::ios::binary);
+	if(!file)
+		throw std::runtime_error("Unable to open " + utf8(path) + ".");
+	std::error_code error;
+	uintmax_t size = std::filesystem::file_size(path, error);
+	unsigned char sign[4] = { 0, 0, 0, 0 };
+	readBytes(file, sign, 3);
+	if(strcmp((const char*)sign, SIGN) == 0)
+		return read(file, error ? 0 : size);
+	if(strcmp((const char*)sign, GRAPH_SIGN) == 0 || strcmp((const char*)sign, GRAPH_SIGN_BIAS) == 0)
+		return readGraph(file, strcmp((const char*)sign, GRAPH_SIGN_BIAS) == 0);
+	if(!isprint(sign[0]) || !isprint(sign[1]) || !isprint(sign[2]))
+		throw std::runtime_error("Not a neural network file.");
+	throw std::runtime_error(std::string("Version ") + (const char*)sign +
+		" not supported, required " SIGN ", " GRAPH_SIGN " or " GRAPH_SIGN_BIAS ".");
+}
+
+void Network::save(const std::filesystem::path& path) const
 {
 	std::ofstream file(path, std::ios::binary | std::ios::trunc);
 	if(!file)
 		throw std::runtime_error("Unable to create " + utf8(path) + ".");
-	bool hasBias = false;
-	for(const Node& node : nodes)
+	file.write(SIGN, 3);
+	writeUInt32(file, (uint32_t)inputs);
+	writeUInt32(file, (uint32_t)side);
+	writeUInt32(file, (uint32_t)layers.size());
+	for(const Layer& layer : layers)
 	{
-		if((node.type == Neuron && (node.bias != 0 || node.function >= Relu)) ||
-			(node.type == Input && node.biasInput))
-			hasBias = true;
-	}
-	file.write(hasBias ? RN_SIGN_BIAS : RN_SIGN, 3); // sign
-	writeUInt32(file, (uint32_t)nodes.size()); // neuron count
-	writeUInt32(file, (uint32_t)edges.size()); // edge count
-	for(const Node& node : nodes)
-	{
-		writeInt32(file, node.type); // type, 1 -> Neuron, 2 -> Input, 3 ->Output
-		int function = 0;
-		if(node.type == Neuron)
-			function = node.function;
-		else if(node.type == Input && node.biasInput)
-			function = 1;
-		writeInt32(file, function); // activation function, 1 on a bias input
-		writeInt32(file, node.x); // x position
-		writeInt32(file, node.y); // y position
-		if(hasBias)
-			writeDouble(file, node.type == Neuron ? node.bias : 0); // neuron bias
-	}
-	for(const Edge& edge : edges)
-	{
-		writeInt32(file, edge.source + 1); // first node id
-		writeInt32(file, edge.target + 1); // second node id
-		writeDouble(file, edge.weight); // connection weight
+		writeUInt32(file, (uint32_t)layer.size);
+		writeUInt32(file, (uint32_t)layer.function);
+		writeFloats(file, &layer.beta, 1);
+		writeFloats(file, layer.weights.data(), layer.weights.size());
+		writeFloats(file, layer.bias.data(), layer.bias.size());
 	}
 	file.close();
 	if(!file)

@@ -1,5 +1,6 @@
 #ifndef _PIXELS_H_
 #define _PIXELS_H_
+#include "../training/Dataset.h"
 #include <string>
 #include <vector>
 
@@ -28,6 +29,14 @@ namespace pixels
 	 * lê.
 	 */
 	std::vector<double> fromFile(const std::string& fileName, int side);
+
+	/**
+	 * Amostras das imagens da pasta com o dígito no começo do nome (3_7.png),
+	 * em ordem de nome, reduzidas como em fromFile, com classes saídas e o
+	 * alvo do dígito em 1. Lança exceção se a pasta não tiver imagens assim ou
+	 * se um dígito passar das saídas.
+	 */
+	Dataset fromFolder(const std::string& folder, int side, int classes);
 
 	/**
 	 * Indica se a extensão do arquivo é de imagem

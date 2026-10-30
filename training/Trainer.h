@@ -1,13 +1,13 @@
 #ifndef _TRAINER_H_
 #define _TRAINER_H_
 #include "Dataset.h"
-#include "Model.h"
+#include "Network.h"
 #include <atomic>
 #include <functional>
 #include <vector>
 
 /**
- * Treina os pesos e os bias de um Model por retropropagação. Com poucas
+ * Treina os pesos e os bias de uma Network por retropropagação. Com poucas
  * amostras usa todas a cada passo (Rprop) até as saídas chegarem aos alvos;
  * com muitas, que demorariam a cada passo, usa lotes sorteados (SGD) por um
  * número de épocas. A última camada com softmax usa o erro da entropia
@@ -107,27 +107,27 @@ private:
 	/**
 	 * Parâmetros com o tamanho das camadas, todos em value
 	 */
-	static Parameters parameters(const Model& model, float value);
+	static Parameters parameters(const Network& network, float value);
 	static void clear(Parameters& parameters);
 
 	/**
 	 * Indica se algum peso ou bias das redes, de camadas iguais, é diferente
 	 */
-	static bool differs(const Model& model, const Model& other);
+	static bool differs(const Network& network, const Network& other);
 
 	/**
 	 * Propaga count amostras, entradas em input e alvos em target, e soma em
 	 * gradient o sentido em que cada peso e bias reduz o erro, vezes scale
 	 */
-	Evaluation evaluate(const Model& model, const float* input, const float* target, int count,
+	Evaluation evaluate(const Network& network, const float* input, const float* target, int count,
 		Parameters& gradient, float scale);
 
 	/**
 	 * Indica se o bias do neurônio fica como está
 	 */
 	bool isFixed(int layer, int neuron);
-	Result rprop(Model& model, const Dataset& samples);
-	Result sgd(Model& model, const Dataset& samples, const Dataset* test);
+	Result rprop(Network& network, const Dataset& samples);
+	Result sgd(Network& network, const Dataset& samples, const Dataset* test);
 public:
 	// SGD: épocas, taxa de aprendizado e amostras por lote
 	int epochs;
@@ -157,20 +157,20 @@ public:
 	 * mantém e cai à metade quando ele troca; a rede termina com os melhores
 	 * pesos encontrados, nunca pior do que começou.
 	 */
-	Result train(Model& model, const Dataset& samples, const Dataset* test = nullptr);
+	Result train(Network& network, const Dataset& samples, const Dataset* test = nullptr);
 
 	/**
 	 * Sentido em que cada peso e bias reduz o erro, somado em todas as
 	 * amostras, na forma da rede: o que o treino usa, para conferir as
 	 * derivadas
 	 */
-	Model gradient(const Model& model, const Dataset& samples);
+	Network gradient(const Network& network, const Dataset& samples);
 
 	/**
 	 * Fração das amostras com rótulo cuja maior saída é a do rótulo, -1 sem
 	 * rótulos ou com uma saída só
 	 */
-	static double accuracy(const Model& model, const Dataset& samples);
+	static double accuracy(const Network& network, const Dataset& samples);
 
 	/**
 	 * Saída de maior valor, ou -1 sem saídas ou com valores inválidos

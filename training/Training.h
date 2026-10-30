@@ -1,11 +1,11 @@
 #ifndef _TRAINING_H_
 #define _TRAINING_H_
-#include "Network.h"
+#include "Graph.h"
 #include <filesystem>
 #include <vector>
 
 /**
- * Treina os pesos e os bias de uma Network por retropropagação. Cada treino
+ * Treina os pesos e os bias de uma Graph por retropropagação. Cada treino
  * pode guardar a amostra atual da rede (os valores das entradas e os alvos das
  * saídas) e ajusta a rede para todas as amostras já guardadas, então treinar
  * uma combinação não desfaz as outras. Lê e grava as amostras ao lado do
@@ -83,19 +83,19 @@ private:
 	/**
 	 * Pesos das conexões seguidos dos bias dos neurônios, na ordem das listas
 	 */
-	std::vector<double> save(Network& network);
-	void restore(Network& network, const std::vector<double>& values);
+	std::vector<double> save(Graph& network);
+	void restore(Graph& network, const std::vector<double>& values);
 
 	/**
 	 * Marca os pesos e os bias diferentes dos guardados, retorna true se algum
 	 * mudou
 	 */
-	bool markChanged(Network& network, const std::vector<double>& values);
+	bool markChanged(Graph& network, const std::vector<double>& values);
 
 	/**
 	 * Valores atuais das entradas e alvos das saídas
 	 */
-	Sample current(Network& network);
+	Sample current(Graph& network);
 
 	/**
 	 * Indica se a amostra tem as mesmas entradas e saídas das guardadas
@@ -111,13 +111,13 @@ private:
 	/**
 	 * Põe os valores da amostra nas entradas, menos nas de bias, e propaga
 	 */
-	void apply(Network& network, const Sample& sample);
+	void apply(Graph& network, const Sample& sample);
 
 	/**
 	 * Propaga cada amostra e soma em gradient, na ordem de save(), o sentido
 	 * em que cada peso e bias reduz o erro
 	 */
-	Evaluation evaluate(Network& network, std::vector<double>& gradient);
+	Evaluation evaluate(Graph& network, std::vector<double>& gradient);
 public:
 	// ajusta os bias dos neurônios, além dos pesos
 	bool biases;
@@ -134,7 +134,7 @@ public:
 	 * somam 1, a amostra atual sem nenhum alvo diferente de 0 não é guardada.
 	 * Com withScreen false treina só as amostras guardadas, sem a atual.
 	 */
-	Result train(Network& network, bool withScreen = true);
+	Result train(Graph& network, bool withScreen = true);
 
 	/**
 	 * Esquece as amostras guardadas, o próximo treino usa só a atual. Deve ser
@@ -166,7 +166,7 @@ public:
 	 * retorna quantas leu. Se elas não combinam com as entradas e as saídas da
 	 * rede lança exceção e ficam sem amostras.
 	 */
-	int loadSamples(const std::filesystem::path& file, const Network& network);
+	int loadSamples(const std::filesystem::path& file, const Graph& network);
 };
 
 #endif /* _TRAINING_H_ */

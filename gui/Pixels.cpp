@@ -136,6 +136,35 @@ std::vector<double> pixels::fromFile(const std::string& fileName, int side)
 	return fromGray(gray, width, height, side);
 }
 
+Dataset pixels::fromFolder(const std::string& folder, int side, int classes)
+{
+	std::vector<std::filesystem::path> images;
+	for(const auto& entry : std::filesystem::directory_iterator(pathFromUtf8(folder)))
+	{
+		std::string name = pathToUtf8(entry.path());
+		if(isImage(name) && labelOf(name) >= 0)
+			images.push_back(entry.path());
+	}
+	std::sort(images.begin(), images.end());
+	if(images.empty())
+		throw std::runtime_error("No image named after its digit, like 3_7.png, in " + folder +
+			".");
+	Dataset samples(side * side, classes);
+	for(const std::filesystem::path& image : images)
+	{
+		std::string name = pathToUtf8(image);
+		int label = labelOf(name);
+		if(label >= classes)
+			throw std::runtime_error("The digit of " + pathToUtf8(image.filename()) +
+				" has no output, the network has " + std::to_string(classes) + ".");
+		std::vector<double> values = fromFile(name, side);
+		std::vector<float> target(classes, 0);
+		target[label] = 1;
+		samples.add(std::vector<float>(values.begin(), values.end()), target);
+	}
+	return samples;
+}
+
 bool pixels::isImage(const std::string& fileName)
 {
 	static const char *extensions[] = { ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tga",

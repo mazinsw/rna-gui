@@ -6,7 +6,7 @@
  * uso: check [pasta do MNIST]
  */
 #include "../training/Dataset.h"
-#include "../training/Model.h"
+#include "../training/Graph.h"
 #include "../training/Network.h"
 #include "../training/Trainer.h"
 #include <chrono>
@@ -32,13 +32,13 @@ static const char *functionNames[] = { "linear", "degrau", "bipolar", "logístic
  * Erro que o treino reduz: entropia cruzada com softmax na última camada e
  * metade da soma dos quadrados nas demais
  */
-static double loss(const Model& model, const Dataset& samples)
+static double loss(const Network& network, const Dataset& samples)
 {
 	double total = 0;
-	bool softmax = model.layers.back().function == Model::Softmax;
+	bool softmax = network.layers.back().function == Network::Softmax;
 	for(int s = 0; s < samples.size(); s++)
 	{
-		std::vector<float> output = model.run(samples.input(s));
+		std::vector<float> output = network.run(samples.input(s));
 		for(int o = 0; o < samples.outputs; o++)
 		{
 			double target = samples.target(s)[o];
@@ -58,11 +58,11 @@ static void checkGradient(int hidden, int output)
 {
 	std::mt19937 random(7);
 	std::uniform_real_distribution<float> uniform(-1, 1);
-	Model model;
-	model.inputs = 3;
-	model.layers.push_back(Model::layer(3, 4, hidden));
-	model.layers.push_back(Model::layer(4, 3, output));
-	for(Model::Layer& layer : model.layers)
+	Network network;
+	network.inputs = 3;
+	network.layers.push_back(Network::layer(3, 4, hidden));
+	network.layers.push_back(Network::layer(4, 3, output));
+	for(Network::Layer& layer : network.layers)
 	{
 		for(float& weight : layer.weights)
 			weight = uniform(random);
@@ -74,30 +74,30 @@ static void checkGradient(int hidden, int output)
 	{
 		std::vector<float> input = { uniform(random), uniform(random), uniform(random) };
 		std::vector<float> target = { 0, 0, 0 };
-		if(output == Model::Softmax)
+		if(output == Network::Softmax)
 			target[s % 3] = 1;
 		else
 			target = { uniform(random), uniform(random), uniform(random) };
 		samples.add(input, target);
 	}
 	Trainer trainer;
-	Model gradient = trainer.gradient(model, samples);
+	Network gradient = trainer.gradient(network, samples);
 	double worst = 0;
 	const float h = 1e-2f;
-	for(size_t l = 0; l < model.layers.size(); l++)
+	for(size_t l = 0; l < network.layers.size(); l++)
 	{
 		for(int kind = 0; kind < 2; kind++)
 		{
-			std::vector<float>& values = kind == 0 ? model.layers[l].weights : model.layers[l].bias;
+			std::vector<float>& values = kind == 0 ? network.layers[l].weights : network.layers[l].bias;
 			const std::vector<float>& analytic = kind == 0 ? gradient.layers[l].weights :
 				gradient.layers[l].bias;
 			for(size_t i = 0; i < values.size(); i++)
 			{
 				float value = values[i];
 				values[i] = value + h;
-				double up = loss(model, samples);
+				double up = loss(network, samples);
 				values[i] = value - h;
-				double down = loss(model, samples);
+				double down = loss(network, samples);
 				values[i] = value;
 				// o gradiente do treino é o sentido que reduz o erro
 				double numeric = -(up - down) / (2 * h);
@@ -132,14 +132,14 @@ static int converged(const Dataset& samples, const std::vector<int>& sizes, int 
 	for(int seed = 1; seed <= seeds; seed++)
 	{
 		std::mt19937 random(seed);
-		Model model;
-		model.inputs = samples.inputs;
+		Network network;
+		network.inputs = samples.inputs;
 		for(int size : sizes)
-			model.layers.push_back(Model::layer(model.inputCount((int)model.layers.size()), size,
+			network.layers.push_back(Network::layer(network.inputCount((int)network.layers.size()), size,
 				function));
-		model.randomize(random);
+		network.randomize(random);
 		Trainer trainer;
-		Trainer::Status status = trainer.train(model, samples).status;
+		Trainer::Status status = trainer.train(network, samples).status;
 		if(status == Trainer::Trained || status == Trainer::OnTarget)
 			count++;
 	}
@@ -155,28 +155,28 @@ static void checkImport(const std::string& path)
 	std::string name = std::filesystem::path(path).filename().string();
 	try
 	{
+		Graph graph = Graph::load(path);
 		Network network = Network::load(path);
-		Model model = Model::load(path);
 		std::mt19937 random(3);
 		std::uniform_real_distribution<float> uniform(0, 1);
 		double worst = 0;
 		for(int sample = 0; sample < 20; sample++)
 		{
 			std::vector<float> input;
-			for(Network::Node& node : network.nodes)
+			for(Graph::Node& node : graph.nodes)
 			{
-				if(node.type != Network::Input || node.biasInput)
+				if(node.type != Graph::Input || node.biasInput)
 					continue;
 				// bits nas redes pequenas, como na interface
-				node.value = model.inputs < 16 ? (float)(int)(uniform(random) * 2) : uniform(random);
+				node.value = network.inputs < 16 ? (float)(int)(uniform(random) * 2) : uniform(random);
 				input.push_back((float)node.value);
 			}
-			network.execute();
-			std::vector<float> output = model.run(input);
+			graph.execute();
+			std::vector<float> output = network.run(input);
 			size_t o = 0;
-			for(Network::Node& node : network.nodes)
+			for(Graph::Node& node : graph.nodes)
 			{
-				if(node.type != Network::Output)
+				if(node.type != Graph::Output)
 					continue;
 				worst = std::max(worst, o < output.size() ? fabs(node.value - output[o]) : 1.0);
 				o++;
@@ -199,21 +199,21 @@ static void checkFiles()
 	std::filesystem::create_directories(folder);
 	std::filesystem::path file = folder / "rede.bin";
 	std::mt19937 random(5);
-	Model model;
-	model.setInputs(16, 4, random);
-	model.insertLayer(0, 5, Model::Relu, random);
-	model.insertLayer(1, 3, Model::Softmax, random);
-	model.layers[0].beta = 0.5f;
-	model.save(file);
-	Model loaded = Model::load(file);
-	bool same = loaded.inputs == model.inputs && loaded.side == model.side &&
-		loaded.layers.size() == model.layers.size();
-	for(size_t l = 0; same && l < model.layers.size(); l++)
-		same = loaded.layers[l].size == model.layers[l].size &&
-			loaded.layers[l].function == model.layers[l].function &&
-			loaded.layers[l].beta == model.layers[l].beta &&
-			loaded.layers[l].weights == model.layers[l].weights &&
-			loaded.layers[l].bias == model.layers[l].bias;
+	Network network;
+	network.setInputs(16, 4, random);
+	network.insertLayer(0, 5, Network::Relu, random);
+	network.insertLayer(1, 3, Network::Softmax, random);
+	network.layers[0].beta = 0.5f;
+	network.save(file);
+	Network loaded = Network::load(file);
+	bool same = loaded.inputs == network.inputs && loaded.side == network.side &&
+		loaded.layers.size() == network.layers.size();
+	for(size_t l = 0; same && l < network.layers.size(); l++)
+		same = loaded.layers[l].size == network.layers[l].size &&
+			loaded.layers[l].function == network.layers[l].function &&
+			loaded.layers[l].beta == network.layers[l].beta &&
+			loaded.layers[l].weights == network.layers[l].weights &&
+			loaded.layers[l].bias == network.layers[l].bias;
 	check(same, "grava e lê a rede no formato 2.0");
 	Dataset samples(16, 3);
 	std::uniform_real_distribution<float> uniform(-2, 2);
@@ -239,10 +239,10 @@ static void checkMnist(const std::string& folder)
 	Dataset train = Dataset::loadIdx(folder);
 	Dataset test = Dataset::loadIdx(Dataset::testPath(folder));
 	std::mt19937 random(1);
-	Model model;
-	model.setInputs(784, 28, random);
-	model.insertLayer(0, 256, Model::Relu, random);
-	model.insertLayer(1, 10, Model::Softmax, random);
+	Network network;
+	network.setInputs(784, 28, random);
+	network.insertLayer(0, 256, Network::Relu, random);
+	network.insertLayer(1, 10, Network::Softmax, random);
 	Trainer trainer;
 	trainer.epochs = 7;
 	auto start = std::chrono::steady_clock::now();
@@ -253,7 +253,7 @@ static void checkMnist(const std::string& folder)
 		printf("       época %d: %.1f%% no treino, %.2f%% no teste, %.2f s\n", progress.step,
 			progress.accuracy * 100, progress.testAccuracy * 100, seconds / progress.step);
 	};
-	Trainer::Result result = trainer.train(model, train, &test);
+	Trainer::Result result = trainer.train(network, train, &test);
 	double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() -
 		start).count();
 	check(result.testAccuracy >= 0.955, "MNIST 784-256-10 em 7 épocas acerta " +
@@ -265,21 +265,21 @@ int main(int argc, char *argv[])
 {
 	try
 	{
-		int functions[] = { Model::Linear, Model::Logistic, Model::Hiperbolic, Model::Relu };
+		int functions[] = { Network::Linear, Network::Logistic, Network::Hiperbolic, Network::Relu };
 		for(int hidden : functions)
 		{
-			checkGradient(hidden, Model::Linear);
-			checkGradient(hidden, Model::Softmax);
+			checkGradient(hidden, Network::Linear);
+			checkGradient(hidden, Network::Softmax);
 		}
-		checkGradient(Model::Relu, Model::Logistic);
-		checkGradient(Model::Logistic, Model::Hiperbolic);
-		check(converged(truthTable(0, 0, 0, 1), { 1 }, Model::Degrau, 10) == 10,
+		checkGradient(Network::Relu, Network::Logistic);
+		checkGradient(Network::Logistic, Network::Hiperbolic);
+		check(converged(truthTable(0, 0, 0, 1), { 1 }, Network::Degrau, 10) == 10,
 			"AND com degrau converge nos 10 sorteios");
-		check(converged(truthTable(0, 1, 1, 1), { 1 }, Model::Degrau, 10) == 10,
+		check(converged(truthTable(0, 1, 1, 1), { 1 }, Network::Degrau, 10) == 10,
 			"OR com degrau converge nos 10 sorteios");
-		int xorCount = converged(truthTable(0, 1, 1, 0), { 2, 1 }, Model::Logistic, 10);
+		int xorCount = converged(truthTable(0, 1, 1, 0), { 2, 1 }, Network::Logistic, 10);
 		check(xorCount >= 3, "XOR com logística converge em " + std::to_string(xorCount) + " de 10 sorteios");
-		Model digits = Model::load("exemplos/digitos.bin");
+		Network digits = Network::load("exemplos/digitos.bin");
 		Dataset samples = Dataset::loadSamples("exemplos/digitos.bin", digits.inputs,
 			digits.outputs());
 		Trainer trainer;

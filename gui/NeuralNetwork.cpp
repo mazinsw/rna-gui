@@ -430,7 +430,7 @@ std::vector<Node *> NeuralNetwork::readingOrder(Node::Type type)
 		positions.push_back(std::make_pair(node->getPosition().x, node->getPosition().y));
 	}
 	std::vector<Node *> result;
-	for(int i : Network::readingOrder(positions))
+	for(int i : Graph::readingOrder(positions))
 		result.push_back(found[i]);
 	return result;
 }
@@ -516,7 +516,7 @@ bool NeuralNetwork::canConnect(Node *first, Node *second)
 		return false;
 	if(findEdge(first, second) != NULL)
 		return false;
-	return Network::canConnect(first->getType(), second->getType());
+	return Graph::canConnect(first->getType(), second->getType());
 }
 
 bool NeuralNetwork::canLink(Node *first, Node *second)
@@ -1424,7 +1424,7 @@ bool NeuralNetwork::isOnTarget()
 
 int NeuralNetwork::getImageSide()
 {
-	return Network::imageSide((int)readingOrder(Node::TypeInput).size());
+	return Graph::imageSide((int)readingOrder(Node::TypeInput).size());
 }
 
 bool NeuralNetwork::showImage(const std::vector<double>& values, int label)
@@ -1513,19 +1513,19 @@ void NeuralNetwork::loadFromFile(const std::string& fileName)
 {
 	// lê o arquivo inteiro antes de alterar a rede, um arquivo inválido
 	// mantém a rede atual
-	Network network = Network::load(pathFromUtf8(fileName));
+	Graph network = Graph::load(pathFromUtf8(fileName));
 	clear();
-	for(const Network::Node& data : network.nodes)
+	for(const Graph::Node& data : network.nodes)
 	{
 		Node *node;
-		if(data.type == Network::Neuron)
+		if(data.type == Graph::Neuron)
 		{
 			NeuronNode *neuron = new NeuronNode();
 			neuron->setFunctionType(data.function);
 			neuron->setBias(data.bias);
 			node = neuron;
 		}
-		else if(data.type == Network::Input)
+		else if(data.type == Graph::Input)
 		{
 			InputNode *input = new InputNode();
 			input->setBias(data.biasInput);
@@ -1536,7 +1536,7 @@ void NeuralNetwork::loadFromFile(const std::string& fileName)
 		node->setPosition(data.x, data.y);
 		neurons.push_back(node);
 	}
-	for(const Network::Edge& edge : network.edges)
+	for(const Graph::Edge& edge : network.edges)
 		edges.push_back(new Edge(neurons[edge.source], neurons[edge.target], edge.weight));
 	modified = false;
 	if(running)

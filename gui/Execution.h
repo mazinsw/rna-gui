@@ -4,12 +4,12 @@
 #include <vector>
 #include "Node.h"
 #include "Edge.h"
-#include "../training/Network.h"
+#include "../training/Graph.h"
 #include "../training/Training.h"
 
 /**
  * Liga a rede desenhada à do módulo de treino: antes de executar ou treinar
- * copia os nós e as conexões para uma Network e depois traz de volta os
+ * copia os nós e as conexões para uma Graph e depois traz de volta os
  * valores e, do treino, os pesos, os bias e as marcas de alterado. Guarda as
  * amostras do treino.
  */
@@ -18,7 +18,7 @@ class Execution
 private:
 	std::vector<Node*>& nodes;
 	std::vector<Edge*>& edges;
-	Network network;
+	Graph network;
 	Training training;
 private:
 	/**
@@ -52,7 +52,7 @@ public:
 
 	/**
 	 * Indica, na ordem das conexões, se o treino ajusta o peso, veja
-	 * Network::isTrainable
+	 * Graph::isTrainable
 	 */
 	std::vector<bool> isTrainable();
 
@@ -68,7 +68,7 @@ public:
 
 	/**
 	 * Põe a imagem nas entradas e o rótulo nos alvos e executa, veja
-	 * Network::showImage
+	 * Graph::showImage
 	 */
 	bool showImage(const std::vector<double>& values, int label);
 
@@ -81,7 +81,7 @@ public:
 	/**
 	 * Rede desenhada, para gravar
 	 */
-	Network& getNetwork();
+	Graph& getNetwork();
 
 	inline void forgetSamples()
 	{

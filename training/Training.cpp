@@ -34,17 +34,17 @@ Training::Training()
 	biases = true;
 }
 
-std::vector<double> Training::save(Network& network)
+std::vector<double> Training::save(Graph& network)
 {
 	std::vector<double> values;
-	for(const Network::Edge& edge : network.edges)
+	for(const Graph::Edge& edge : network.edges)
 		values.push_back(edge.weight);
 	for(int neuron : network.neurons)
 		values.push_back(network.nodes[neuron].bias);
 	return values;
 }
 
-void Training::restore(Network& network, const std::vector<double>& values)
+void Training::restore(Graph& network, const std::vector<double>& values)
 {
 	size_t count = network.edges.size();
 	for(size_t i = 0; i < count; i++)
@@ -53,7 +53,7 @@ void Training::restore(Network& network, const std::vector<double>& values)
 		network.nodes[network.neurons[i]].bias = values[count + i];
 }
 
-bool Training::markChanged(Network& network, const std::vector<double>& values)
+bool Training::markChanged(Graph& network, const std::vector<double>& values)
 {
 	bool changed = false;
 	size_t count = network.edges.size();
@@ -64,14 +64,14 @@ bool Training::markChanged(Network& network, const std::vector<double>& values)
 	}
 	for(size_t i = 0; i < network.neurons.size(); i++)
 	{
-		Network::Node& neuron = network.nodes[network.neurons[i]];
+		Graph::Node& neuron = network.nodes[network.neurons[i]];
 		neuron.biasChanged = neuron.bias != values[count + i];
 		changed = changed || neuron.biasChanged;
 	}
 	return changed;
 }
 
-Training::Sample Training::current(Network& network)
+Training::Sample Training::current(Graph& network)
 {
 	Sample sample;
 	for(int input : network.inputs)
@@ -106,22 +106,22 @@ bool Training::remember(const Sample& sample)
 	return true;
 }
 
-void Training::apply(Network& network, const Sample& sample)
+void Training::apply(Graph& network, const Sample& sample)
 {
 	for(size_t i = 0; i < network.inputs.size(); i++)
 	{
-		Network::Node& input = network.nodes[network.inputs[i]];
+		Graph::Node& input = network.nodes[network.inputs[i]];
 		if(!input.biasInput)
 			input.value = sample.inputs[i];
 	}
 	network.propagate();
 }
 
-Training::Evaluation Training::evaluate(Network& network, std::vector<double>& gradient)
+Training::Evaluation Training::evaluate(Graph& network, std::vector<double>& gradient)
 {
 	Evaluation evaluation = { 0, 0, true };
-	std::vector<Network::Node>& nodes = network.nodes;
-	std::vector<Network::Edge>& edges = network.edges;
+	std::vector<Graph::Node>& nodes = network.nodes;
+	std::vector<Graph::Edge>& edges = network.edges;
 	gradient.assign(edges.size() + network.neurons.size(), 0);
 	// erro de cada nó, pelo índice
 	std::vector<double> delta(nodes.size());
@@ -137,21 +137,21 @@ Training::Evaluation Training::evaluate(Network& network, std::vector<double>& g
 			evaluation.squared += difference * difference;
 			evaluation.absolute += fabs(difference);
 			evaluation.onTarget = evaluation.onTarget &&
-				fabs(difference) < Network::Tolerance;
+				fabs(difference) < Graph::Tolerance;
 			delta[network.outputs[i]] = difference;
 		}
 		for(auto it = network.order.rbegin(); it != network.order.rend(); it++)
 		{
-			const Network::Node& node = nodes[*it];
-			if(node.type != Network::Neuron)
+			const Graph::Node& node = nodes[*it];
+			if(node.type != Graph::Neuron)
 				continue;
 			double sum = 0;
 			for(int i = network.outgoingStart[*it]; i < network.outgoingStart[*it + 1]; i++)
 			{
-				const Network::Edge& edge = edges[network.outgoingEdges[i]];
+				const Graph::Edge& edge = edges[network.outgoingEdges[i]];
 				sum += edge.weight * delta[edge.target];
 			}
-			delta[*it] = sum * Network::derivative(node.function, node.beta, node.value);
+			delta[*it] = sum * Graph::derivative(node.function, node.beta, node.value);
 		}
 		// o peso anda no sentido do erro do destino vezes o valor da origem; o
 		// bias é o peso de uma entrada que vale sempre 1
@@ -163,12 +163,12 @@ Training::Evaluation Training::evaluate(Network& network, std::vector<double>& g
 	return evaluation;
 }
 
-Training::Result Training::train(Network& network, bool withScreen)
+Training::Result Training::train(Graph& network, bool withScreen)
 {
 	Result result = { Trained, 0, 0, 0, false, 0, false };
-	for(Network::Edge& edge : network.edges)
+	for(Graph::Edge& edge : network.edges)
 		edge.changed = false;
-	for(Network::Node& node : network.nodes)
+	for(Graph::Node& node : network.nodes)
 		node.biasChanged = false;
 	if(!network.execute())
 	{
@@ -340,7 +340,7 @@ void Training::saveSamples(const std::filesystem::path& network)
 		throw std::runtime_error("Unable to write " + utf8(path) + ".");
 }
 
-int Training::loadSamples(const std::filesystem::path& file, const Network& network)
+int Training::loadSamples(const std::filesystem::path& file, const Graph& network)
 {
 	samples.clear();
 	std::filesystem::path path = samplesPath(file);
@@ -351,11 +351,11 @@ int Training::loadSamples(const std::filesystem::path& file, const Network& netw
 	if(!input)
 		throw std::runtime_error("Unable to open " + utf8(path) + ".");
 	size_t inputCount = 0, outputCount = 0;
-	for(const Network::Node& node : network.nodes)
+	for(const Graph::Node& node : network.nodes)
 	{
-		if(node.type == Network::Input)
+		if(node.type == Graph::Input)
 			inputCount++;
-		else if(node.type == Network::Output)
+		else if(node.type == Graph::Output)
 			outputCount++;
 	}
 	std::string word;

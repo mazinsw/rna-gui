@@ -1,7 +1,7 @@
 #ifndef _OUTPUTNODE_H_
 #define _OUTPUTNODE_H_
 #include "Node.h"
-#include "../training/Network.h"
+#include "../training/Graph.h"
 
 class OutputNode: public Node
 {
@@ -43,7 +43,7 @@ public:
 	 */
 	inline bool isOnTarget()
 	{
-		return fabs(target - getValue()) < Network::Tolerance;
+		return fabs(target - getValue()) < Graph::Tolerance;
 	}
 };
 

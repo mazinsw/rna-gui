@@ -1,32 +1,21 @@
 #ifndef _NETWORK_H_
 #define _NETWORK_H_
 #include <filesystem>
-#include <utility>
+#include <random>
 #include <vector>
 
-class Training;
-
 /**
- * Rede neural sem interface: os nós, as conexões e a execução, que calcula o
- * valor de cada neurônio e saída a partir das entradas. Lê e grava o arquivo
- * da rede (.bin). A interface copia para ela a rede desenhada; a linha de
- * comando e o console a usam direto.
+ * Rede neural em camadas densas: cada neurônio recebe todas as saídas da
+ * camada anterior (a primeira recebe as entradas da rede), cada uma vezes um
+ * peso, soma o bias e aplica a função de ativação da camada. As saídas da
+ * rede são os neurônios da última camada. Lê e grava o arquivo da rede
+ * (.bin); o formato antigo, em grafo, é lido quando os nós estão em camadas.
  */
 class Network
 {
 public:
 	/**
-	 * Tipo do nó, mesmos valores gravados no arquivo
-	 */
-	enum Type
-	{
-		Neuron = 1,
-		Input,
-		Output
-	};
-
-	/**
-	 * Função de ativação do neurônio, mesmos valores gravados no arquivo
+	 * Função de ativação da camada, mesmos valores gravados no arquivo
 	 */
 	enum Function
 	{
@@ -36,98 +25,60 @@ public:
 		Logistic,
 		Hiperbolic,
 		Relu,
-		// normaliza os neurônios softmax da rede juntos, as saídas deles somam 1
+		// normaliza os neurônios da camada juntos, as saídas deles somam 1
 		Softmax,
 		FunctionCount
 	};
 
-	struct Node
+	struct Layer
 	{
-		int type;
+		int size;
 		int function;
 		// inclinação da logística e da hiperbólica
-		double beta;
-		// somado à entrada da função de ativação do neurônio
-		double bias;
-		// entrada de bias, que vale sempre 1
-		bool biasInput;
-		// posição no desenho, gravada no arquivo
-		int x, y;
-		// valor da entrada, ou calculado no neurônio e na saída
-		double value;
-		// valor desejado na saída
-		double target;
-		// bias alterado pelo último treino
-		bool biasChanged;
-	};
-
-	struct Edge
-	{
-		// índices dos nós
-		int source, target;
-		double weight;
-		// peso alterado pelo último treino
-		bool changed;
+		float beta;
+		// peso da entrada i no neurônio j em weights[i * size + j], a linha de
+		// cada entrada contígua para o cálculo pular as entradas em 0
+		std::vector<float> weights;
+		std::vector<float> bias;
 	};
 
 	// diferença máxima entre o valor e o alvo para considerar a saída certa
-	static constexpr double Tolerance = 0.05;
+	static constexpr float Tolerance = 0.05f;
 public:
-	std::vector<Node> nodes;
-	std::vector<Edge> edges;
-private:
-	friend class Training;
-	// índices dos nós em ordem topológica, cada um depois dos que o alimentam
-	std::vector<int> order;
-	// conexões que chegam ao nó n: incomingEdges[incomingStart[n]] até antes
-	// de incomingEdges[incomingStart[n + 1]], na ordem da lista; o mesmo para
-	// as que saem
-	std::vector<int> incomingStart, incomingEdges;
-	std::vector<int> outgoingStart, outgoingEdges;
-	// índices dos nós de cada tipo na ordem da lista
-	std::vector<int> inputs, outputs, neurons;
-	// índices dos neurônios softmax, calculados juntos
-	std::vector<int> softmax;
-	bool cycle;
-private:
-	void sort();
-
-	/**
-	 * Põe o nó na ordem depois dos que o alimentam. Os neurônios softmax entram
-	 * juntos, depois de tudo o que alimenta qualquer um deles.
-	 */
-	void visit(int node, std::vector<int>& state);
-	bool isSoftmax(int node);
-
-	/**
-	 * Soma dos valores que chegam ao nó, cada um vezes o peso da conexão
-	 */
-	double sum(int node);
-
-	/**
-	 * Calcula o valor de cada neurônio e saída na ordem já montada
-	 */
-	void propagate();
+	int inputs;
+	// lado do quadrado de pixels que as entradas formam, 0 se não são imagem
+	int side;
+	std::vector<Layer> layers;
 public:
 	Network();
 
 	/**
-	 * Nó novo do tipo, com valores iniciais: neurônio linear sem bias, beta 1,
-	 * na posição 0, 0
+	 * Quantidade de entradas da camada: as da rede na primeira e o tamanho da
+	 * anterior nas demais
 	 */
-	static Node node(int type, int function = Linear);
+	int inputCount(int layer) const;
 
 	/**
-	 * Indica se uma conexão do tipo de nó source ao tipo target é permitida:
-	 * entradas e saídas não ligam entre si
+	 * Neurônios da última camada, 0 sem camadas
 	 */
-	static bool canConnect(int source, int target);
+	int outputs() const;
+
+	/**
+	 * Camada nova com os pesos e os bias em 0, inputCount(index) entradas
+	 */
+	static Layer layer(int inputs, int size, int function);
 
 	/**
 	 * Valor do neurônio com a função para a soma x, já com o bias. A softmax,
-	 * que depende dos outros neurônios, é calculada em execute.
+	 * que depende dos outros neurônios da camada, é calculada em activate.
 	 */
-	static double activate(int function, double beta, double x);
+	static float activate(int function, float beta, float x);
+
+	/**
+	 * Aplica a função da camada aos count x size valores, a softmax em cada
+	 * linha
+	 */
+	static void activate(const Layer& layer, float* values, int count);
 
 	/**
 	 * Derivada da função de ativação em função da saída y do neurônio. Degrau e
@@ -135,31 +86,57 @@ public:
 	 * softmax também usa 1: o erro dela fica sendo a diferença para o alvo, o
 	 * da entropia cruzada, que não some quando a saída está longe do alvo.
 	 */
-	static double derivative(int function, double beta, double y);
+	static float derivative(int function, float beta, float y);
 
 	/**
-	 * Monta a ordem de execução e calcula o valor de cada neurônio e saída,
-	 * retorna false se a rede tem ciclo
+	 * Calcula count amostras de uma vez, as entradas em linhas de inputs
+	 * valores. values[l] recebe os count x size valores da camada l.
 	 */
-	bool execute();
+	void forward(const float* input, int count, std::vector<std::vector<float> >& values) const;
 
 	/**
-	 * Indica se a rede tinha ciclo na última execução
+	 * Saídas da rede para uma amostra
 	 */
-	bool hasCycle();
+	std::vector<float> run(const std::vector<float>& input) const;
 
 	/**
-	 * Indica, na ordem das conexões, se o treino ajusta o peso: as que chegam
-	 * nos neurônios e as que chegam numa saída que soma mais de um nó. A saída
-	 * ligada a um nó só repassa o valor dele e esse peso fica fixo.
+	 * Sorteia os pesos e os bias de cada camada entre -r e r, com 2 casas, r
+	 * = raiz de 6 / (entradas + neurônios) e no máximo 1
 	 */
-	std::vector<bool> isTrainable();
+	void randomize(std::mt19937& random);
+	static float randomWeight(std::mt19937& random, int inputs, int size);
 
 	/**
-	 * Índices dos pontos na ordem de leitura: de cima para baixo e, na mesma
-	 * altura, da esquerda para a direita
+	 * Indica se todos os pesos e bias são números finitos
 	 */
-	static std::vector<int> readingOrder(const std::vector<std::pair<int, int> >& positions);
+	bool isFinite() const;
+
+	/**
+	 * Muda a quantidade de entradas da camada, mantendo os pesos das que
+	 * ficam; as novas ganham pesos sorteados
+	 */
+	void resizeInputs(int index, int count, std::mt19937& random);
+
+	/**
+	 * Muda a quantidade de neurônios da camada e as entradas da seguinte; os
+	 * neurônios novos ganham pesos e bias sorteados
+	 */
+	void resize(int index, int size, std::mt19937& random);
+
+	/**
+	 * Muda as entradas da rede e as da primeira camada
+	 */
+	void setInputs(int count, int side, std::mt19937& random);
+
+	/**
+	 * Camada nova na posição, ligada às vizinhas com pesos sorteados
+	 */
+	void insertLayer(int index, int size, int function, std::mt19937& random);
+
+	/**
+	 * Remove a camada, a seguinte passa a receber as saídas da anterior
+	 */
+	void removeLayer(int index, std::mt19937& random);
 
 	/**
 	 * Lado do quadrado de pixels que count entradas formam, 8 com 64, ou 0 se
@@ -168,48 +145,19 @@ public:
 	static int imageSide(int count);
 
 	/**
-	 * Índices dos nós do tipo na ordem de leitura das posições, sem as
-	 * entradas de bias
-	 */
-	std::vector<int> readingOrder(int type);
-
-	/**
-	 * Lado do quadrado de pixels que as entradas de dado formam, ou 0
-	 */
-	int getImageSide();
-
-	/**
-	 * Põe os pixels da imagem nas entradas de dado, na ordem de leitura delas,
-	 * e executa a rede. O alvo da saída do rótulo (a primeira de cima é a 0)
-	 * fica em 1 e os das outras em 0; sem rótulo, ou com um além das saídas,
-	 * todos ficam em 0. Retorna true se o rótulo marcou um alvo.
-	 */
-	bool showImage(const std::vector<double>& values, int label);
-
-	/**
-	 * Saída de maior valor, contando de 0 na ordem de leitura, ou -1 sem
-	 * saídas ou com valores inválidos
-	 */
-	int getRecognized();
-
-	/**
-	 * Valor da saída, contando de 0 na ordem de leitura
-	 */
-	double getOutputValue(int output);
-
-	/**
-	 * Lê a rede do arquivo, nos formatos 1.1 e 1.2. As conexões que a rede não
-	 * permite (repetidas, de um nó a ele mesmo ou entre entradas e saídas) são
-	 * ignoradas. Lança exceção se o arquivo for inválido.
+	 * Lê a rede do arquivo no formato 2.0 ou, nos formatos 1.1 e 1.2 da rede
+	 * em grafo, quando os nós estão em camadas: cada ligação vai de uma camada
+	 * à seguinte, os neurônios de uma camada têm a mesma função e as saídas
+	 * vêm da última. A ligação ausente vira peso 0 e a entrada de bias é
+	 * somada ao bias dos neurônios que ela alimenta. Lança exceção se o
+	 * arquivo for inválido ou a rede não estiver em camadas.
 	 */
 	static Network load(const std::filesystem::path& path);
 
 	/**
-	 * Grava a rede no formato 1.1, que a versão Windows original abre, ou no
-	 * 1.2 quando ela usa algum bias, entrada de bias, ReLU ou softmax. Lança
-	 * exceção se falhar.
+	 * Grava a rede no formato 2.0. Lança exceção se falhar.
 	 */
-	void save(const std::filesystem::path& path);
+	void save(const std::filesystem::path& path) const;
 };
 
 #endif /* _NETWORK_H_ */

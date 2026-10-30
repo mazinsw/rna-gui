@@ -19,7 +19,7 @@ void Execution::copyIn()
 	{
 		Node* node = nodes[i];
 		index[node] = (int)i;
-		Network::Node data = Network::node(node->getType());
+		Graph::Node data = Graph::node(node->getType());
 		if(node->is(Node::TypeNeuron))
 		{
 			data.function = ((NeuronNode*)node)->getFunctionType();
@@ -35,7 +35,7 @@ void Execution::copyIn()
 		network.nodes.push_back(data);
 	}
 	for(Edge* edge : edges)
-		network.edges.push_back(Network::Edge{ index[edge->getFirst()], index[edge->getSecond()],
+		network.edges.push_back(Graph::Edge{ index[edge->getFirst()], index[edge->getSecond()],
 			edge->getWeight(), false });
 }
 
@@ -125,7 +125,7 @@ Training::Result Execution::train(bool withScreen)
 	return result;
 }
 
-Network& Execution::getNetwork()
+Graph& Execution::getNetwork()
 {
 	copyIn();
 	return network;

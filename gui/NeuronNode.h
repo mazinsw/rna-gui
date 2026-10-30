@@ -1,12 +1,12 @@
 #ifndef _NEURONNODE_H_
 #define _NEURONNODE_H_
 #include "Node.h"
-#include "../training/Network.h"
+#include "../training/Graph.h"
 
 class NeuronNode: public Node
 {
 private:
-	// um valor de Network::Function
+	// um valor de Graph::Function
 	int functionType;
 	double bias;
 	bool biasChanged;
