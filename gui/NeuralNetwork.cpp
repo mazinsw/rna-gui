@@ -4,6 +4,7 @@
 #include "Widgets.h"
 #include <cmath>
 #include <ctype.h>
+#include <rlgl.h>
 #include <algorithm>
 #include <fstream>
 #include <functional>
@@ -185,13 +186,17 @@ void NeuralNetwork::paint(Rectangle bounds)
 			DrawRectangleRec(Rectangle{ gx - 0.75f, gy - 0.75f, 1.5f, 1.5f }, grid);
 	}
 	drawGuides(bounds);
-	// desenha a rede com o zoom e o deslocamento da vista
-	Camera2D camera = { { bounds.x + pan.x, bounds.y + pan.y }, { 0, 0 }, 0, zoom };
+	// desenha a rede com o zoom e o deslocamento da vista. Sem BeginMode2D: no
+	// raylib 6 ele descarta a escala da tela Retina e a rede sairia com metade
+	// do tamanho, longe de onde o mouse a encontra
+	Vector2 offset = { bounds.x + pan.x, bounds.y + pan.y };
 	shapes::setZoom(zoom);
-	Node::setView(zoom, camera.offset);
-	BeginMode2D(camera);
+	Node::setView(zoom, offset);
+	rlPushMatrix();
+	rlTranslatef(offset.x, offset.y, 0);
+	rlScalef(zoom, zoom, 1);
 	draw();
-	EndMode2D();
+	rlPopMatrix();
 	Node::setView(1, Vector2{ 0, 0 });
 	shapes::setZoom(1);
 	EndScissorMode();
