@@ -11,97 +11,19 @@
  */
 #include "../gui/Pixels.h"
 #include "../gui/Platform.h"
+#include "../training/Network.h"
+#include "../training/Training.h"
 #include <raylib.h>
 #include <algorithm>
 #include <filesystem>
-#include <fstream>
 #include <random>
 #include <stdexcept>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <vector>
 
 // classes, os dígitos
 static const int Classes = 10;
-// mesmos valores de Node::Type e NeuronNode::FunctionType
-enum { TypeNeuron = 1, TypeInput, TypeOutput };
-enum { FunctionRelu = 5, FunctionSoftmax = 6 };
-
-struct NodeData
-{
-	int type, function, x, y;
-	double bias;
-};
-
-struct EdgeData
-{
-	// posição dos nós na lista, a partir de 1
-	int first, second;
-	double weight;
-};
-
-static void writeUInt32(std::ofstream& file, uint32_t value)
-{
-	unsigned char bytes[4];
-	for(int i = 0; i < 4; i++)
-		bytes[i] = (unsigned char)(value >> (i * 8));
-	file.write((const char*)bytes, sizeof(bytes));
-}
-
-static void writeDouble(std::ofstream& file, double value)
-{
-	uint64_t bits;
-	unsigned char bytes[8];
-	memcpy(&bits, &value, sizeof(bits));
-	for(int i = 0; i < 8; i++)
-		bytes[i] = (unsigned char)(bits >> (i * 8));
-	file.write((const char*)bytes, sizeof(bytes));
-}
-
-/**
- * Rede no formato 1.2 da interface, veja NeuralNetwork.cpp
- */
-static void saveNetwork(const std::filesystem::path& path, const std::vector<NodeData>& nodes,
-	const std::vector<EdgeData>& edges)
-{
-	std::ofstream file(path, std::ios::binary | std::ios::trunc);
-	if(!file)
-		throw std::runtime_error("Unable to create " + pathToUtf8(path) + ".");
-	file.write("1.2", 3);
-	writeUInt32(file, (uint32_t)nodes.size());
-	writeUInt32(file, (uint32_t)edges.size());
-	for(const NodeData& node : nodes)
-	{
-		writeUInt32(file, (uint32_t)node.type);
-		writeUInt32(file, (uint32_t)node.function);
-		writeUInt32(file, (uint32_t)node.x);
-		writeUInt32(file, (uint32_t)node.y);
-		writeDouble(file, node.bias);
-	}
-	for(const EdgeData& edge : edges)
-	{
-		writeUInt32(file, (uint32_t)edge.first);
-		writeUInt32(file, (uint32_t)edge.second);
-		writeDouble(file, edge.weight);
-	}
-	file.close();
-	if(!file)
-		throw std::runtime_error("Unable to write " + pathToUtf8(path) + ".");
-}
-
-/**
- * Número com ponto decimal e só os dígitos necessários para ser lido igual
- */
-static std::string formatValue(double value)
-{
-	char str[32];
-	snprintf(str, sizeof(str), "%.15g", value);
-	if(strtod(str, NULL) != value)
-		snprintf(str, sizeof(str), "%.17g", value);
-	return str;
-}
 
 int main(int argc, char *argv[])
 {
@@ -141,62 +63,60 @@ int main(int argc, char *argv[])
 		const int left = 250, gridTop = middle - pixel * (side - 1) / 2;
 		const int hiddenX = left + pixel * (side - 1) + 240;
 		const int softmaxX = hiddenX + 200, outputX = softmaxX + 160;
-		std::vector<NodeData> nodes;
-		std::vector<EdgeData> edges;
-		for(int i = 0; i < side * side; i++)
-			nodes.push_back({ TypeInput, 0, left + pixel * (i % side), gridTop + pixel * (i / side),
-				0 });
-		int hiddenStart = (int)nodes.size() + 1;
-		for(int i = 0; i < hidden; i++)
-			nodes.push_back({ TypeNeuron, FunctionRelu, hiddenX, hiddenTop + spacing * i, 0 });
-		int softmaxStart = (int)nodes.size() + 1;
-		for(int i = 0; i < Classes; i++)
-			nodes.push_back({ TypeNeuron, FunctionSoftmax, softmaxX, classesTop + spacing * i, 0 });
-		int outputStart = (int)nodes.size() + 1;
-		for(int i = 0; i < Classes; i++)
-			nodes.push_back({ TypeOutput, 0, outputX, classesTop + spacing * i, 0 });
-		for(NodeData& node : nodes)
+		Network network;
+		auto add = [&](int type, int function, int x, int y)
 		{
-			if(node.type == TypeNeuron)
+			Network::Node node = Network::node(type, function);
+			node.x = x;
+			node.y = y;
+			network.nodes.push_back(node);
+		};
+		for(int i = 0; i < side * side; i++)
+			add(Network::Input, Network::Linear, left + pixel * (i % side),
+				gridTop + pixel * (i / side));
+		int hiddenStart = (int)network.nodes.size();
+		for(int i = 0; i < hidden; i++)
+			add(Network::Neuron, Network::Relu, hiddenX, hiddenTop + spacing * i);
+		int softmaxStart = (int)network.nodes.size();
+		for(int i = 0; i < Classes; i++)
+			add(Network::Neuron, Network::Softmax, softmaxX, classesTop + spacing * i);
+		int outputStart = (int)network.nodes.size();
+		for(int i = 0; i < Classes; i++)
+			add(Network::Output, Network::Linear, outputX, classesTop + spacing * i);
+		for(Network::Node& node : network.nodes)
+		{
+			if(node.type == Network::Neuron)
 				node.bias = randomWeight();
 		}
 		for(int h = 0; h < hidden; h++)
 		{
 			for(int i = 0; i < side * side; i++)
-				edges.push_back({ 1 + i, hiddenStart + h, randomWeight() });
+				network.edges.push_back({ i, hiddenStart + h, randomWeight(), false });
 		}
 		for(int c = 0; c < Classes; c++)
 		{
 			for(int h = 0; h < hidden; h++)
-				edges.push_back({ hiddenStart + h, softmaxStart + c, randomWeight() });
+				network.edges.push_back({ hiddenStart + h, softmaxStart + c, randomWeight(), false });
 		}
 		// a saída ligada a um nó só repassa o valor dele
 		for(int c = 0; c < Classes; c++)
-			edges.push_back({ softmaxStart + c, outputStart + c, 1 });
-		std::filesystem::path network = pathFromUtf8(argv[2]);
-		saveNetwork(network, nodes, edges);
-		std::filesystem::path samplesPath = network;
-		samplesPath.replace_extension(".amostras.txt");
-		std::ofstream samples(samplesPath, std::ios::binary | std::ios::trunc);
-		if(!samples)
-			throw std::runtime_error("Unable to create " + pathToUtf8(samplesPath) + ".");
-		samples << "amostras " << images.size() << "\n";
+			network.edges.push_back({ softmaxStart + c, outputStart + c, 1, false });
+		std::vector<Training::Sample> samples;
 		for(const std::filesystem::path& image : images)
 		{
 			std::string name = pathToUtf8(image);
-			std::vector<double> values = pixels::fromFile(name, side);
-			for(size_t i = 0; i < values.size(); i++)
-				samples << (i > 0 ? " " : "") << formatValue(values[i]);
-			samples << "\nsaidas";
-			for(int c = 0; c < Classes; c++)
-				samples << (c == pixels::labelOf(name) ? " 1" : " 0");
-			samples << "\n";
+			Training::Sample sample;
+			sample.inputs = pixels::fromFile(name, side);
+			sample.targets.assign(Classes, 0);
+			sample.targets[pixels::labelOf(name)] = 1;
+			samples.push_back(sample);
 		}
-		samples.close();
-		if(!samples)
-			throw std::runtime_error("Unable to write " + pathToUtf8(samplesPath) + ".");
-		printf("%s: %d nodes, %d edges, %d samples\n", argv[2], (int)nodes.size(),
-			(int)edges.size(), (int)images.size());
+		Training training;
+		training.setSamples(samples);
+		network.save(pathFromUtf8(argv[2]));
+		training.saveSamples(pathFromUtf8(argv[2]));
+		printf("%s: %d nodes, %d edges, %d samples\n", argv[2], (int)network.nodes.size(),
+			(int)network.edges.size(), (int)samples.size());
 	}
 	catch (const std::exception& e)
 	{

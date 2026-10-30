@@ -102,7 +102,7 @@ private:
 	}
 	void treinar()
 	{
-		Execution::TrainResult result = neuralNetwork->train();
+		Training::Result result = neuralNetwork->train();
 		std::string errors = "erro de " + Node::formatNumber(result.errorBefore, 2) + " para " +
 			Node::formatNumber(result.errorAfter, 2) + ".";
 		std::string iterations = std::to_string(result.iterations) +
@@ -110,33 +110,33 @@ private:
 		std::string samples = " com " + samplesText(result.samples);
 		switch(result.status)
 		{
-		case Execution::Trained:
+		case Training::Trained:
 			message = "Treinado" + samples + " em " + iterations + ": " + errors;
 			break;
-		case Execution::OnTarget:
+		case Training::OnTarget:
 			message = result.samples == 1 ?
 				"As saídas já estão iguais aos alvos, os pesos foram mantidos." :
 				"As saídas já estão iguais aos alvos nas " + samplesText(result.samples) +
 				", os pesos foram mantidos.";
 			break;
-		case Execution::NotConverged:
+		case Training::NotConverged:
 			message = "Não convergiu em " + iterations + samples + ": " + errors;
 			break;
-		case Execution::Stalled:
+		case Training::Stalled:
 			message = "O erro parou de cair em " + iterations + samples + ": " + errors +
 				" Troque a função dos neurônios ou sorteie os pesos.";
 			break;
-		case Execution::Invalid:
+		case Training::Invalid:
 			message = "A rede tem valores inválidos (nan ou inf) e não pode ser treinada. "
 				"Sorteie os pesos para recomeçar.";
 			break;
-		case Execution::HasCycle:
+		case Training::HasCycle:
 			message = "A rede tem um ciclo e não pode ser treinada.";
 			break;
-		case Execution::NoOutput:
+		case Training::NoOutput:
 			message = "Adicione uma saída para treinar a rede.";
 			break;
-		case Execution::NoTarget:
+		case Training::NoTarget:
 			message = "As saídas da softmax somam 1: clique no alvo da saída certa para treinar.";
 			break;
 		}

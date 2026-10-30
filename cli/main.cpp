@@ -1,12 +1,15 @@
 /**
  * Treina e usa pela linha de comando as redes da interface (.bin), com as
- * amostras gravadas ao lado delas (rede.amostras.txt). Usa o mesmo código da
- * interface, sem abrir a janela.
+ * amostras gravadas ao lado delas (rede.amostras.txt), pelo mesmo módulo de
+ * treino e a mesma redução de imagens da interface.
  */
-#include "../gui/NeuralNetwork.h"
+#include "../gui/Number.h"
 #include "../gui/Pixels.h"
 #include "../gui/Platform.h"
+#include "../training/Network.h"
+#include "../training/Training.h"
 #include "Console.h"
+#include <raylib.h>
 #include <cmath>
 #include <stdio.h>
 #include <stdexcept>
@@ -33,21 +36,29 @@ static std::string samplesText(int count)
 }
 
 /**
- * Lê a rede e as amostras dela, lança exceção com o arquivo que falhou
+ * Lê a rede, lança exceção com o arquivo que falhou
  */
-static int load(NeuralNetwork& network, const std::string& path)
+static Network load(const std::string& path)
 {
 	try
 	{
-		network.loadFromFile(path);
+		return Network::load(pathFromUtf8(path));
 	}
 	catch (const std::exception& e)
 	{
 		throw std::runtime_error("Falha na leitura da rede " + nameOf(path) + ": " + e.what());
 	}
+}
+
+/**
+ * Lê as amostras gravadas ao lado da rede, lança exceção com o arquivo que
+ * falhou
+ */
+static int loadSamples(Training& training, const Network& network, const std::string& path)
+{
 	try
 	{
-		return network.loadSamples(path);
+		return training.loadSamples(pathFromUtf8(path), network);
 	}
 	catch (const std::exception& e)
 	{
@@ -63,49 +74,51 @@ static int train(const std::vector<std::string>& args)
 {
 	const std::string& input = args[2];
 	const std::string& output = args.size() > 3 ? args[3] : input;
-	NeuralNetwork network;
-	if(load(network, input) == 0)
+	Network network = load(input);
+	Training training;
+	if(loadSamples(training, network, input) == 0)
 		throw std::runtime_error(nameOf(input) + " não tem amostras para treinar. Elas ficam em " +
 			pathToUtf8(pathFromUtf8(input).replace_extension(".amostras.txt").filename()) +
 			", gravado pelo Salvar da interface.");
-	Execution::TrainResult result = network.train(false);
-	std::string errors = "erro de " + Node::formatNumber(result.errorBefore, 2) + " para " +
-		Node::formatNumber(result.errorAfter, 2) + ".";
+	Training::Result result = training.train(network, false);
+	std::string errors = "erro de " + number::format(result.errorBefore, 2) + " para " +
+		number::format(result.errorAfter, 2) + ".";
 	std::string iterations = std::to_string(result.iterations) +
 		(result.iterations == 1 ? " iteração" : " iterações");
 	std::string samples = " com " + samplesText(result.samples);
 	switch(result.status)
 	{
-	case Execution::Trained:
+	case Training::Trained:
 		printf("Treinado%s em %s: %s\n", samples.c_str(), iterations.c_str(), errors.c_str());
 		break;
-	case Execution::OnTarget:
-		printf("As saídas já estão iguais aos alvos nas %s, os pesos foram mantidos.\n",
+	case Training::OnTarget:
+		printf("As saídas já estão iguais aos alvos em %s, os pesos foram mantidos.\n",
 			samplesText(result.samples).c_str());
 		break;
-	case Execution::NotConverged:
+	case Training::NotConverged:
 		printf("Não convergiu em %s%s: %s Treine de novo para continuar.\n", iterations.c_str(),
 			samples.c_str(), errors.c_str());
 		break;
-	case Execution::Stalled:
+	case Training::Stalled:
 		printf("O erro parou de cair em %s%s: %s Troque a função dos neurônios ou sorteie os "
 			"pesos na interface.\n", iterations.c_str(), samples.c_str(), errors.c_str());
 		break;
-	case Execution::Invalid:
+	case Training::Invalid:
 		throw std::runtime_error("A rede tem valores inválidos (nan ou inf) e não pode ser "
 			"treinada. Sorteie os pesos na interface para recomeçar.");
-	case Execution::HasCycle:
+	case Training::HasCycle:
 		throw std::runtime_error("A rede tem um ciclo e não pode ser treinada.");
-	case Execution::NoOutput:
+	case Training::NoOutput:
 		throw std::runtime_error("A rede não tem saídas para treinar.");
-	case Execution::NoTarget:
+	case Training::NoTarget:
 		throw std::runtime_error(nameOf(input) + " não tem amostras para treinar.");
 	}
 	if(result.changed || output != input)
 	{
 		try
 		{
-			network.saveToFile(output);
+			network.save(pathFromUtf8(output));
+			training.saveSamples(pathFromUtf8(output));
 		}
 		catch (const std::exception& e)
 		{
@@ -113,7 +126,7 @@ static int train(const std::vector<std::string>& args)
 		}
 		printf("Rede salva em %s.\n", output.c_str());
 	}
-	bool reached = result.status == Execution::Trained || result.status == Execution::OnTarget;
+	bool reached = result.status == Training::Trained || result.status == Training::OnTarget;
 	return reached ? 0 : 2;
 }
 
@@ -122,8 +135,7 @@ static int train(const std::vector<std::string>& args)
  */
 static int recognize(const std::vector<std::string>& args)
 {
-	NeuralNetwork network;
-	load(network, args[2]);
+	Network network = load(args[2]);
 	int side = network.getImageSide();
 	if(side == 0)
 		throw std::runtime_error("As entradas de dado de " + nameOf(args[2]) + " não formam um "
@@ -152,7 +164,7 @@ static int recognize(const std::vector<std::string>& args)
 			continue;
 		}
 		printf("%s: %d (%s)", name.c_str(), recognized,
-			Node::formatNumber(network.getOutputValue(recognized), 2).c_str());
+			number::format(network.getOutputValue(recognized), 2).c_str());
 		if(hasLabel)
 		{
 			labeled++;
@@ -170,6 +182,7 @@ static int recognize(const std::vector<std::string>& args)
 
 int main(int argc, char *argv[])
 {
+	console::showUtf8();
 	std::vector<std::string> args = console::arguments(argc, argv);
 	// as falhas de leitura já são explicadas nas mensagens do programa
 	SetTraceLogLevel(LOG_ERROR);

@@ -3,6 +3,7 @@
 #include <raylib.h>
 #include <math.h>
 #include <string>
+#include "Number.h"
 
 struct Point
 {
@@ -101,16 +102,20 @@ public:
 	}
 
 	/**
-	 * Número com vírgula decimal, no máximo digits casas e sem zeros à direita;
-	 * a partir de um milhão em notação científica, com digits casas na mantissa
+	 * Veja number::format
 	 */
-	static std::string formatNumber(double value, int digits);
+	static inline std::string formatNumber(double value, int digits)
+	{
+		return number::format(value, digits);
+	}
 
 	/**
-	 * Lê um número com vírgula ou ponto decimal, retorna false se o texto não
-	 * começa com um número finito
+	 * Veja number::parse
 	 */
-	static bool parseNumber(const std::string& text, double& value);
+	static inline bool parseNumber(const std::string& text, double& value)
+	{
+		return number::parse(text, value);
+	}
 
 	/**
 	 * Zoom e canto da origem da rede na janela durante o desenho, para o texto

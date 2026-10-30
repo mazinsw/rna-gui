@@ -45,7 +45,7 @@ private:
 			CLAY_STRING("Softmax"),
 		};
 		ui::groupTitle(CLAY_STRING("FUNÇÃO DE ATIVAÇÃO"));
-		for(int i = 0; i < NeuronNode::FunctionCount; i++)
+		for(int i = 0; i < Network::FunctionCount; i++)
 		{
 			if(ui::menuItem(CLAY_IDI("MenuFuncao", i), icons::customFunction(i), names[i],
 				neuron->getFunctionType() == i))

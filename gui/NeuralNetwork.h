@@ -459,7 +459,7 @@ public:
 	 * Treina com os valores atuais das entradas e os alvos das saídas, que
 	 * entram nas amostras; com withScreen false, só com as amostras guardadas
 	 */
-	Execution::TrainResult train(bool withScreen = true);
+	Training::Result train(bool withScreen = true);
 
 	/**
 	 * Sorteia de novo, entre -1 e 1, os bias e os pesos que o treino ajusta;

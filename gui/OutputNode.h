@@ -1,6 +1,7 @@
 #ifndef _OUTPUTNODE_H_
 #define _OUTPUTNODE_H_
 #include "Node.h"
+#include "../training/Network.h"
 
 class OutputNode: public Node
 {
@@ -9,11 +10,6 @@ private:
 	Rectangle targetBox;
 protected:
 
-public:
-	/**
-	 * Diferença máxima entre o valor e o alvo para considerar a saída certa
-	 */
-	static constexpr double Tolerance = 0.05;
 public:
 	OutputNode();
 	virtual Type getType() { return TypeOutput; }
@@ -47,7 +43,7 @@ public:
 	 */
 	inline bool isOnTarget()
 	{
-		return fabs(target - getValue()) < Tolerance;
+		return fabs(target - getValue()) < Network::Tolerance;
 	}
 };
 

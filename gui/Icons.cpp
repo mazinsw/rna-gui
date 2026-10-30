@@ -179,7 +179,7 @@ namespace icons
 		axis.lines({ { 15, 1 }, { 15, 19 } });
 		axis.lines({ { 1, 10 }, { 29, 10 } });
 		Canvas c(bounds, Vector2{ 30, 20 }, 2, color);
-		// mesma ordem de NeuronNode::FunctionType
+		// mesma ordem de Network::Function
 		switch(function)
 		{
 		case 0:

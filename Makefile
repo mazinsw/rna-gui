@@ -1,7 +1,7 @@
 # Redes Neurais - build para macOS, Linux e Windows (MSYS2), GUI com Clay + raylib
 #
-#   make           GUI (build/NeuralNetwork), console (build/RedesNeurais) e
-#                  linha de comando das redes da GUI (build/rna)
+#   make           GUI (build/NeuralNetwork), linha de comando das redes da GUI
+#                  (build/rna) e console do formato texto (build/RedesNeurais)
 #   make raylib    baixa e compila o raylib em third_party/, usado no lugar do
 #                  raylib do sistema (para quando não há pacote >= 5.5)
 #   make app       pacote build/NeuralNetwork.app (somente macOS)
@@ -47,7 +47,7 @@ SHA256SUM     := shasum -a 256
 else ifeq ($(TARGET_OS),windows)
 PLATFORM_LIBS := -lopengl32 -lgdi32 -lwinmm
 # CommandLineToArgvW, para os argumentos em UTF-8
-RNA_LIBS      := -lshell32
+CONSOLE_LIBS  := -lshell32
 # estático para o .exe não depender das DLLs do MSYS2
 GUI_LDFLAGS   := -mwindows -static
 CLI_LDFLAGS   := -static
@@ -82,25 +82,27 @@ RAYLIB_LIBS   := $(shell pkg-config --libs raylib 2>/dev/null)
 RAYLIB_CHECK  := pkg-config --atleast-version=5.5 raylib
 endif
 
-CORE_SRCS := core/Signal.cpp core/Neuron.cpp training/Training.cpp
-CLI_SRCS  := $(CORE_SRCS) test/test_all.cpp test/test_input.cpp test/test_training.cpp
-GUI_SRCS  := gui/main.cpp gui/ClayRaylib.cpp gui/Widgets.cpp gui/Input.cpp \
-             gui/Platform.cpp gui/Resources.cpp gui/Node.cpp gui/Edge.cpp \
+# rede, execução e treino, sem o raylib
+TRAINING_SRCS := training/Network.cpp training/Training.cpp
+CLI_SRCS  := $(TRAINING_SRCS) console/main.cpp cli/Console.cpp
+GUI_SRCS  := $(TRAINING_SRCS) gui/main.cpp gui/ClayRaylib.cpp gui/Widgets.cpp gui/Input.cpp \
+             gui/Platform.cpp gui/Resources.cpp gui/Node.cpp gui/Edge.cpp gui/Number.cpp \
              gui/InputNode.cpp gui/NeuronNode.cpp gui/OutputNode.cpp gui/NeuralNetwork.cpp \
              gui/Execution.cpp gui/Shapes.cpp gui/Icons.cpp gui/Settings.cpp gui/Pixels.cpp
+# a linha de comando lê as imagens com o raylib, sem a janela
+RNA_SRCS  := $(TRAINING_SRCS) cli/main.cpp cli/Console.cpp gui/Platform.cpp gui/Number.cpp \
+             gui/Pixels.cpp
+DIGITOS_SRCS := $(TRAINING_SRCS) tools/digitos.cpp gui/Platform.cpp gui/Pixels.cpp
 
 RES_HDRS  := $(GEN)/Roboto-Regular.ttf.h
 
 CLI_OBJS  := $(CLI_SRCS:%.cpp=$(OBJDIR)/%.o)
 GUI_OBJS  := $(GUI_SRCS:%.cpp=$(OBJDIR)/%.o)
+RNA_OBJS  := $(RNA_SRCS:%.cpp=$(OBJDIR)/%.o)
+DIGITOS_OBJS := $(DIGITOS_SRCS:%.cpp=$(OBJDIR)/%.o)
 ifeq ($(TARGET_OS),windows)
 GUI_RES   := $(OBJDIR)/res/windows/app.o
 endif
-
-DIGITOS_OBJS := $(OBJDIR)/tools/digitos.o $(OBJDIR)/gui/Pixels.o $(OBJDIR)/gui/Platform.o
-# as redes da GUI sem a janela
-RNA_OBJS  := $(OBJDIR)/cli/main.o $(OBJDIR)/cli/Console.o \
-             $(filter-out $(OBJDIR)/gui/main.o,$(GUI_OBJS))
 
 BIN2C     := $(BUILD)/bin2c$(HOST_EXE)
 GUI_BIN   := $(BUILD)/NeuralNetwork$(EXE)
@@ -123,10 +125,10 @@ $(GUI_BIN): $(GUI_OBJS) $(GUI_RES)
 	$(CXX) $(LDFLAGS) $(GUI_LDFLAGS) -o $@ $^ $(RAYLIB_LIBS)
 
 $(CLI_BIN): $(CLI_OBJS)
-	$(CXX) $(LDFLAGS) $(CLI_LDFLAGS) -o $@ $^
+	$(CXX) $(LDFLAGS) $(CLI_LDFLAGS) -o $@ $^ $(CONSOLE_LIBS)
 
 $(RNA_BIN): $(RNA_OBJS)
-	$(CXX) $(LDFLAGS) $(CLI_LDFLAGS) -o $@ $^ $(RAYLIB_LIBS) $(RNA_LIBS)
+	$(CXX) $(LDFLAGS) $(CLI_LDFLAGS) -o $@ $^ $(RAYLIB_LIBS) $(CONSOLE_LIBS)
 
 # usa a redução de imagens da interface, para as amostras serem iguais às
 # imagens arrastadas para a janela
@@ -137,7 +139,8 @@ digitos: $(DIGITOS)
 	./$(DIGITOS) exemplos/digitos exemplos/digitos.bin
 	./$(DIGITOS) exemplos/digitos28 exemplos/digitos28.bin 28 16
 
-$(GUI_OBJS) $(RNA_OBJS): | raylib-check
+# o console não usa o raylib
+$(filter $(OBJDIR)/gui/%,$(GUI_OBJS)) $(OBJDIR)/cli/main.o $(OBJDIR)/tools/digitos.o: | raylib-check
 
 raylib-check:
 ifneq ($(RAYLIB_CHECK),)
@@ -226,4 +229,4 @@ clean:
 distclean: clean
 	rm -rf $(RAYLIB_DIR)
 
--include $(CLI_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(OBJDIR)/tools/digitos.d $(RNA_OBJS:.o=.d)
+-include $(sort $(CLI_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(RNA_OBJS:.o=.d) $(DIGITOS_OBJS:.o=.d))

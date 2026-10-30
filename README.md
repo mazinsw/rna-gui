@@ -263,52 +263,75 @@ Acertos: 65 de 100 (65%)
 
 ## Console
 
+`build/RedesNeurais` lê da entrada padrão uma ou mais redes num formato texto, treina cada uma com as
+amostras que têm saídas desejadas, mostra a saída de cada amostra e escreve a rede treinada no mesmo
+formato, que pode ser lida de novo para continuar o treino:
+
 ```
-Como usar:
+build/RedesNeurais < exemplos/xor.txt
+make test       # o mesmo com testes_treinamento.txt
+```
 
-RedesNeurais.exe < dados.txt
+Formato, com comentários de `;` até o fim da linha:
 
-Estutura do arquivo de entrada:
-(quantidade de neurônios n) (quantidade de sinais de entrada sn) (quantidade totais de sinais tn)
-(id do neurônio 1) (função de ativação) [constante da função]
-... n vezes
-(id do neurônio n) (degrau|bipolar|logistica|hiperbolica|linear) [constante da função]
-
-(método de ligação) (id do neurônio ou entrada) [peso da ligação] [id do neurônio de destino]
-... tn vezes
-(entrada|conectar|saida) (id do neurônio ou entrada) [peso da ligação] [id do neurônio de destino]
+```
+(quantidade de neurônios n) (quantidade de entradas) (quantidade de ligações)
+(número do neurônio) (degrau|bipolar|logistica|hiperbolica|linear|relu|softmax) [constante]
+... n vezes, a logística e a hiperbólica com a constante (beta), como 1.0
+(entrada|conectar|saida) ... uma linha por ligação:
+  entrada (número da entrada) (peso) (neurônio de destino)
+  conectar (neurônio de origem) (peso) (neurônio de destino)
+  saida (neurônio), que vira uma saída da rede
 
 amostras (quantidade de amostras)
-(vetor de entradas separadas por espaço)
-[saidas] [vetor de saidas desejadas separadas por espaço]
+(valores das entradas separados por espaço)
+[saidas (valores desejados de cada saída)]
+... uma vez por amostra
+```
 
-exemplo:
-;1 neurônio
-;3 sinais de entrada
-;4 sinais, 3 de entrada + 1 de saida
+O console não tem bias no neurônio e só treina os pesos: o bias é uma entrada que vale sempre 1 (ou
+-1) e o peso dela. Exemplo, um AND com o peso do bias de um OR:
+
+```
 1 3 4
-1 degrau ; função degrau
+1 degrau
 
-entrada 1  1.5 1 ; entrada 1 liga ao neurônio 1 com peso 1.5
-entrada 2  1.0 1
-entrada 3  1.0 1
-saida   1        ; o neurônio 1 é de saida
+entrada 1 0.5 1 ; a entrada 1 vale sempre -1 e faz o papel do bias
+entrada 2 1.0 1
+entrada 3 1.0 1
+saida   1
 
 amostras 4
--1.0 0.0 0.0
--1.0 0.0 1.0
--1.0 1.0 0.0
--1.0 1.0 1.0
-
-
-as funções logistica e hiperbolica necessitam de uma contante, exemplo:
-3 logistica 1.0 ; o terceiro neurônio usa a função logística com beta igual a 1.0
-
-Analisando a Saida:
-Saida 1: 0.0805225
-Esperado 1: 1
-Saida 2: -0.38891
-Esperado 2: 0
-
-Saida para o primeiro
+-1 0 0
+saidas 0
+-1 0 1
+saidas 0
+-1 1 0
+saidas 0
+-1 1 1
+saidas 1
 ```
+
+Saída:
+
+```
+Rede 1: treinada com 4 amostras em 4 iterações, erro de 2 para 0.
+Amostra 1: saídas 0 (desejadas 0)
+Amostra 2: saídas 0 (desejadas 0)
+Amostra 3: saídas 0 (desejadas 0)
+Amostra 4: saídas 1 (desejadas 1)
+
+Rede treinada:
+1 3 4
+1 degrau
+
+entrada  1 0.76840000000000008 1
+entrada  2 0.73159999999999992 1
+entrada  3 0.73159999999999992 1
+saida    1
+
+amostras 4
+...
+```
+
+O treino é o mesmo da interface e da linha de comando, do diretório `training/`.

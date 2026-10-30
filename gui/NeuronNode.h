@@ -1,29 +1,18 @@
 #ifndef _NEURONNODE_H_
 #define _NEURONNODE_H_
 #include "Node.h"
+#include "../training/Network.h"
 
 class NeuronNode: public Node
 {
 private:
+	// um valor de Network::Function
 	int functionType;
 	double bias;
 	bool biasChanged;
 	bool biasSelected;
 	Rectangle biasBox;
 protected:
-public:
-	enum FunctionType
-	{
-		Linear = 0,
-		Degrau,
-		Bipolar,
-		Logistic,
-		Hiperbolic,
-		Relu,
-		// normaliza os neurônios softmax da rede juntos, as saídas deles somam 1
-		Softmax,
-		FunctionCount
-	};
 public:
 	NeuronNode();
 	virtual Type getType() { return TypeNeuron; }

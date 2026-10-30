@@ -3,18 +3,12 @@
 #include "Shapes.h"
 #include "Widgets.h"
 #include <cmath>
-#include <ctype.h>
 #include <rlgl.h>
 #include <algorithm>
-#include <fstream>
 #include <functional>
 #include <map>
 #include <stdexcept>
-#include <stdint.h>
 #include <stdio.h>
-#include <string.h>
-#define RN_SIGN "1.1"
-#define RN_SIGN_BIAS "1.2"
 // pontos da grade a cada GRID_SIZE pixels, o primeiro em GRID_OFFSET
 #define GRID_SIZE 20
 #define GRID_OFFSET 10
@@ -39,75 +33,6 @@
 // com mais conexões que isto os rótulos de peso cobririam a rede, só o da
 // conexão selecionada aparece
 #define MAX_WEIGHT_LABELS 100
-
-/*
- * Formato do arquivo, little-endian com tamanhos fixos para ser o mesmo em
- * qualquer plataforma. A versão 1.1 é a gravada pela versão Windows 32 bits:
- * sign[3] neuronCount:u32 edgeCount:u32
- * neuronCount x (type:i32 function:i32 x:i32 y:i32)
- * edgeCount x (first:i32 second:i32 weight:f64)
- * A versão 1.2 acrescenta bias:f64 a cada nó e usa function da entrada para
- * marcar a entrada de bias (1). É gravada só quando a rede usa algum bias ou
- * uma função que a versão Windows não tem (ReLU e softmax), as demais
- * continuam em 1.1.
- */
-
-static void writeUInt32(std::ofstream& file, uint32_t value)
-{
-	unsigned char bytes[4];
-	for(int i = 0; i < 4; i++)
-		bytes[i] = (unsigned char)(value >> (i * 8));
-	file.write((const char*)bytes, sizeof(bytes));
-}
-
-static void writeInt32(std::ofstream& file, int32_t value)
-{
-	writeUInt32(file, (uint32_t)value);
-}
-
-static void writeDouble(std::ofstream& file, double value)
-{
-	uint64_t bits;
-	unsigned char bytes[8];
-	memcpy(&bits, &value, sizeof(bits));
-	for(int i = 0; i < 8; i++)
-		bytes[i] = (unsigned char)(bits >> (i * 8));
-	file.write((const char*)bytes, sizeof(bytes));
-}
-
-static void readBytes(std::ifstream& file, unsigned char* bytes, size_t count)
-{
-	file.read((char*)bytes, count);
-	if(!file)
-		throw std::runtime_error("Unexpected end of file.");
-}
-
-static uint32_t readUInt32(std::ifstream& file)
-{
-	unsigned char bytes[4];
-	uint32_t value = 0;
-	readBytes(file, bytes, sizeof(bytes));
-	for(int i = 0; i < 4; i++)
-		value |= (uint32_t)bytes[i] << (i * 8);
-	return value;
-}
-
-static int32_t readInt32(std::ifstream& file)
-{
-	return (int32_t)readUInt32(file);
-}
-
-static double readDouble(std::ifstream& file)
-{
-	unsigned char bytes[8];
-	uint64_t bits = 0;
-	double value;
-	readBytes(file, bytes, sizeof(bytes));
-	for(int i = 0; i < 8; i++)
-		bits |= (uint64_t)bytes[i] << (i * 8);
-	memcpy(&value, &bits, sizeof(value));
-	return value;
-}
 
 NeuralNetwork::NeuralNetwork(): execution(neurons, edges), random(std::random_device()())
 {
@@ -495,18 +420,18 @@ void NeuralNetwork::drawClasses()
 
 std::vector<Node *> NeuralNetwork::readingOrder(Node::Type type)
 {
-	std::vector<Node *> result;
+	std::vector<Node *> found;
+	std::vector<std::pair<int, int> > positions;
 	for(Node *node : neurons)
 	{
-		if(node->is(type) && !(type == Node::TypeInput && ((InputNode*)node)->isBias()))
-			result.push_back(node);
+		if(!node->is(type) || (type == Node::TypeInput && ((InputNode*)node)->isBias()))
+			continue;
+		found.push_back(node);
+		positions.push_back(std::make_pair(node->getPosition().x, node->getPosition().y));
 	}
-	std::stable_sort(result.begin(), result.end(), [](Node *a, Node *b)
-	{
-		const Point& p = a->getPosition();
-		const Point& q = b->getPosition();
-		return p.y != q.y ? p.y < q.y : p.x < q.x;
-	});
+	std::vector<Node *> result;
+	for(int i : Network::readingOrder(positions))
+		result.push_back(found[i]);
 	return result;
 }
 
@@ -591,15 +516,7 @@ bool NeuralNetwork::canConnect(Node *first, Node *second)
 		return false;
 	if(findEdge(first, second) != NULL)
 		return false;
-	if(first->is(Node::TypeInput) && second->is(Node::TypeInput))
-		return false;
-	if(first->is(Node::TypeOutput) && second->is(Node::TypeOutput))
-		return false;
-	if(first->is(Node::TypeOutput) && second->is(Node::TypeInput))
-		return false;
-	if(first->is(Node::TypeInput) && second->is(Node::TypeOutput))
-		return false;
-	return true;
+	return Network::canConnect(first->getType(), second->getType());
 }
 
 bool NeuralNetwork::canLink(Node *first, Node *second)
@@ -1434,9 +1351,9 @@ bool NeuralNetwork::isRunning()
 	return running;
 }
 
-Execution::TrainResult NeuralNetwork::train(bool withScreen)
+Training::Result NeuralNetwork::train(bool withScreen)
 {
-	Execution::TrainResult result = execution.train(withScreen);
+	Training::Result result = execution.train(withScreen);
 	if(result.changed || result.samplesChanged)
 		modified = true;
 	return result;
@@ -1507,25 +1424,16 @@ bool NeuralNetwork::isOnTarget()
 
 int NeuralNetwork::getImageSide()
 {
-	int count = (int)readingOrder(Node::TypeInput).size();
-	int side = (int)lround(sqrt(count));
-	return side >= 2 && side * side == count ? side : 0;
+	return Network::imageSide((int)readingOrder(Node::TypeInput).size());
 }
 
 bool NeuralNetwork::showImage(const std::vector<double>& values, int label)
 {
-	std::vector<Node *> inputs = readingOrder(Node::TypeInput);
-	for(size_t i = 0; i < inputs.size() && i < values.size(); i++)
-		inputs[i]->setValue(values[i]);
-	std::vector<Node *> outputs = readingOrder(Node::TypeOutput);
-	for(size_t i = 0; i < outputs.size(); i++)
-		((OutputNode*)outputs[i])->setTarget((int)i == label ? 1 : 0);
 	running = true;
 	showingImage = true;
 	cancelAction();
 	execution.clearChanged();
-	execution.execute();
-	return label >= 0 && label < (int)outputs.size();
+	return execution.showImage(values, label);
 }
 
 bool NeuralNetwork::isShowingImage()
@@ -1588,276 +1496,48 @@ NeuronNode* NeuralNetwork::getSelectedBias()
 	return biasSelected;
 }
 
-/**
- * Arquivo das amostras ao lado da rede: rede.bin -> rede.amostras.txt
- */
-static std::filesystem::path samplesPath(const std::string& fileName)
-{
-	std::filesystem::path path = pathFromUtf8(fileName);
-	path.replace_extension(".amostras.txt");
-	return path;
-}
-
-/**
- * Número com ponto decimal e só os dígitos necessários para ser lido igual
- */
-static std::string formatSampleValue(double value)
-{
-	char str[32];
-	snprintf(str, sizeof(str), "%.15g", value);
-	if(strtod(str, NULL) != value)
-		snprintf(str, sizeof(str), "%.17g", value);
-	return str;
-}
-
-/**
- * Grava as amostras no bloco dos arquivos do console: "amostras" e a
- * quantidade, depois os valores das entradas de cada uma e "saidas" com os
- * alvos
- */
-static void saveSamples(const std::filesystem::path& path,
-	const std::vector<Execution::Sample>& samples)
-{
-	if(samples.empty())
-	{
-		// as amostras esquecidas não voltam ao abrir a rede
-		std::error_code error;
-		if(!std::filesystem::remove(path, error) && error)
-			throw std::runtime_error("Unable to remove " + pathToUtf8(path) + ".");
-		return;
-	}
-	std::ofstream file(path, std::ios::binary | std::ios::trunc);
-	if(!file)
-		throw std::runtime_error("Unable to create " + pathToUtf8(path) + ".");
-	file << "amostras " << samples.size() << "\n";
-	for(const Execution::Sample& sample : samples)
-	{
-		for(size_t i = 0; i < sample.inputs.size(); i++)
-			file << (i > 0 ? " " : "") << formatSampleValue(sample.inputs[i]);
-		file << "\nsaidas";
-		for(double target : sample.targets)
-			file << " " << formatSampleValue(target);
-		file << "\n";
-	}
-	file.close();
-	if(!file)
-		throw std::runtime_error("Unable to write " + pathToUtf8(path) + ".");
-}
-
 void NeuralNetwork::saveToFile(const std::string& fileName)
 {
-	std::ofstream file(pathFromUtf8(fileName), std::ios::binary | std::ios::trunc);
-	std::vector<Node *>::iterator it;
-	std::vector<Edge *>::iterator ite;
-	std::map<Node*,int> nodeMap;
-	int intVal;
-	int i = 1;
-
-	if(!file)
-		throw std::runtime_error("Unable to create " + fileName + ".");
-	// 1.1 enquanto não há bias nem ReLU ou softmax, para continuar abrindo na
-	// versão Windows
-	bool hasBias = false;
-	for(it = neurons.begin(); it != neurons.end(); it++)
-	{
-		Node *node = *it;
-		if((node->is(Node::TypeNeuron) && (((NeuronNode*)node)->getBias() != 0 ||
-			((NeuronNode*)node)->getFunctionType() >= NeuronNode::Relu)) ||
-			(node->is(Node::TypeInput) && ((InputNode*)node)->isBias()))
-			hasBias = true;
-	}
-	file.write(hasBias ? RN_SIGN_BIAS : RN_SIGN, 3); // sign
-	writeUInt32(file, (uint32_t)neurons.size()); // neuron count
-	writeUInt32(file, (uint32_t)edges.size()); // edge count
-	// save each neuron
-	for(it = neurons.begin(); it != neurons.end(); it++)
-	{
-		Node *node = *it;
-		intVal = node->getType();
-		writeInt32(file, intVal); // type, 1 -> Neuron, 2 -> Input, 3 ->Output
-		if(node->is(Node::TypeNeuron))
-			intVal = ((NeuronNode*)node)->getFunctionType();
-		else if(node->is(Node::TypeInput) && ((InputNode*)node)->isBias())
-			intVal = 1;
-		else
-			intVal = 0;
-		writeInt32(file, intVal); // activation function, 1 on a bias input
-		writeInt32(file, node->getPosition().x); // x position
-		writeInt32(file, node->getPosition().y); // y position
-		if(hasBias)
-		{
-			double bias = 0;
-			if(node->is(Node::TypeNeuron))
-				bias = ((NeuronNode*)node)->getBias();
-			writeDouble(file, bias); // neuron bias
-		}
-		nodeMap[node] = i;
-		i++;
-	}
-	for(ite = edges.begin(); ite != edges.end(); ite++)
-	{
-		Edge *edge = *ite;
-		writeInt32(file, nodeMap[edge->getFirst()]); // first node id
-		writeInt32(file, nodeMap[edge->getSecond()]); // second node id
-		writeDouble(file, edge->getWeight()); // connection weight
-	}
-	file.close();
-	if(!file)
-		throw std::runtime_error("Unable to write " + fileName + ".");
-	saveSamples(samplesPath(fileName), execution.getSamples());
+	std::filesystem::path path = pathFromUtf8(fileName);
+	execution.getNetwork().save(path);
+	execution.saveSamples(path);
 	modified = false;
 }
 
 int NeuralNetwork::loadSamples(const std::string& fileName)
 {
-	execution.forgetSamples();
-	std::filesystem::path path = samplesPath(fileName);
-	std::error_code error;
-	if(!std::filesystem::exists(path, error))
-		return 0;
-	std::ifstream file(path, std::ios::binary);
-	if(!file)
-		throw std::runtime_error("Unable to open " + pathToUtf8(path) + ".");
-	size_t inputCount = 0, outputCount = 0;
-	for(Node *node : neurons)
-	{
-		if(node->is(Node::TypeInput))
-			inputCount++;
-		else if(node->is(Node::TypeOutput))
-			outputCount++;
-	}
-	std::string word;
-	long count;
-	if(!(file >> word) || word != "amostras" || !(file >> count) || count < 0)
-		throw std::runtime_error("Expected \"amostras\" and the number of samples.");
-	std::vector<Execution::Sample> samples;
-	for(long n = 1; n <= count; n++)
-	{
-		std::runtime_error mismatch("Sample " + std::to_string(n) + " does not have the " +
-			std::to_string(inputCount) + " inputs and " + std::to_string(outputCount) +
-			" outputs of the network.");
-		// lê os valores com ponto decimal, como os arquivos do console
-		auto readValues = [&](size_t size, std::vector<double>& values)
-		{
-			for(size_t i = 0; i < size; i++)
-			{
-				char *end;
-				if(!(file >> word))
-					throw mismatch;
-				double value = strtod(word.c_str(), &end);
-				if(*end != '\0' || end == word.c_str() || !std::isfinite(value))
-					throw mismatch;
-				values.push_back(value);
-			}
-		};
-		Execution::Sample sample;
-		readValues(inputCount, sample.inputs);
-		if(!(file >> word) || word != "saidas")
-			throw mismatch;
-		readValues(outputCount, sample.targets);
-		samples.push_back(sample);
-	}
-	if(file >> word)
-		throw std::runtime_error("More values than the " + std::to_string(count) +
-			" samples declared.");
-	execution.setSamples(samples);
-	return (int)samples.size();
+	return execution.loadSamples(pathFromUtf8(fileName));
 }
 
 void NeuralNetwork::loadFromFile(const std::string& fileName)
 {
-	struct NodeData
-	{
-		int type, function, x, y;
-		double bias;
-	};
-	struct EdgeData
-	{
-		int first, second;
-		double weight;
-	};
-	std::ifstream file(pathFromUtf8(fileName), std::ios::binary);
-	std::vector<NodeData> nodes;
-	std::vector<EdgeData> links;
-	uint32_t neuronCount;
-	uint32_t edgeCount;
-	unsigned char ver[4];
-	uint32_t i;
-
-	if(!file)
-		throw std::runtime_error("Unable to open " + fileName + ".");
-	ver[3] = '\0';
-	readBytes(file, ver, 3); // sign
-	bool hasBias = strcmp((const char*)ver, RN_SIGN_BIAS) == 0;
-	if(!hasBias && strcmp((const char*)ver, RN_SIGN) != 0)
-	{
-		if(!isprint(ver[0]) || !isprint(ver[1]) || !isprint(ver[2]))
-			throw std::runtime_error("Not a neural network file.");
-		throw std::runtime_error(std::string("Version ") + (const char*)ver +
-			" not supported, required " RN_SIGN " or " RN_SIGN_BIAS ".");
-	}
-	neuronCount = readUInt32(file); // neuron count
-	edgeCount = readUInt32(file); // edge count
 	// lê o arquivo inteiro antes de alterar a rede, um arquivo inválido
 	// mantém a rede atual
-	for(i = 0; i < neuronCount; i++)
-	{
-		NodeData node;
-		node.type = readInt32(file); // type, 1 -> Neuron, 2 -> Input, 3 ->Output
-		node.function = readInt32(file); // activation function
-		node.x = readInt32(file); // x position
-		node.y = readInt32(file); // y position
-		node.bias = hasBias ? readDouble(file) : 0; // neuron bias
-		if(node.type == Node::TypeNeuron &&
-			(node.function < 0 || node.function >= NeuronNode::FunctionCount))
-			throw std::runtime_error("Invalid activation function.");
-		// a 1.1 não marca entradas de bias
-		if(node.type == Node::TypeInput && !hasBias)
-			node.function = 0;
-		if(node.type == Node::TypeInput && node.function != 0 && node.function != 1)
-			throw std::runtime_error("Invalid input kind.");
-		nodes.push_back(node);
-	}
-	for(i = 0; i < edgeCount; i++)
-	{
-		EdgeData edge;
-		edge.first = readInt32(file); // first node id
-		edge.second = readInt32(file); // second node id
-		edge.weight = readDouble(file); // connection weight
-		if(edge.first < 1 || edge.first > (int)nodes.size() ||
-			edge.second < 1 || edge.second > (int)nodes.size())
-			throw std::runtime_error("Invalid node id.");
-		links.push_back(edge);
-	}
+	Network network = Network::load(pathFromUtf8(fileName));
 	clear();
-	for(size_t n = 0; n < nodes.size(); n++)
+	for(const Network::Node& data : network.nodes)
 	{
 		Node *node;
-		if(nodes[n].type == Node::TypeNeuron)
+		if(data.type == Network::Neuron)
 		{
 			NeuronNode *neuron = new NeuronNode();
-			neuron->setFunctionType(nodes[n].function);
-			neuron->setBias(nodes[n].bias);
+			neuron->setFunctionType(data.function);
+			neuron->setBias(data.bias);
 			node = neuron;
 		}
-		else if(nodes[n].type == Node::TypeInput)
+		else if(data.type == Network::Input)
 		{
 			InputNode *input = new InputNode();
-			input->setBias(nodes[n].function == 1);
+			input->setBias(data.biasInput);
 			node = input;
 		}
 		else
 			node = new OutputNode();
-		node->setPosition(nodes[n].x, nodes[n].y);
+		node->setPosition(data.x, data.y);
 		neurons.push_back(node);
 	}
-	for(size_t e = 0; e < links.size(); e++)
-	{
-		Node *first = neurons[links[e].first - 1];
-		Node *second = neurons[links[e].second - 1];
-		if(canConnect(first, second))
-			edges.push_back(new Edge(first, second, links[e].weight));
-	}
+	for(const Network::Edge& edge : network.edges)
+		edges.push_back(new Edge(neurons[edge.source], neurons[edge.target], edge.weight));
 	modified = false;
 	if(running)
 		execution.execute();

@@ -6,7 +6,7 @@
 
 NeuronNode::NeuronNode()
 {
-	setFunctionType(Linear);
+	setFunctionType(Network::Linear);
 	setBias(0);
 	setBiasChanged(false);
 	setBiasSelected(false);
