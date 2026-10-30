@@ -205,9 +205,10 @@ public:
 	 * cresce enquanto o sentido do ajuste se mantém e cai à metade quando ele
 	 * troca. A rede termina com os melhores pesos encontrados, nunca pior do
 	 * que começou. Com softmax, cujas saídas somam 1, a amostra atual sem
-	 * nenhum alvo diferente de 0 não é guardada.
+	 * nenhum alvo diferente de 0 não é guardada. Com withScreen false treina só
+	 * as amostras guardadas, sem a atual.
 	 */
-	TrainResult train();
+	TrainResult train(bool withScreen = true);
 
 	/**
 	 * Esquece as amostras guardadas, o próximo treino usa só a atual. Deve ser

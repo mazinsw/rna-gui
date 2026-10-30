@@ -456,9 +456,10 @@ public:
 	bool isRunning();
 
 	/**
-	 * Treina com os valores atuais das entradas e os alvos das saídas
+	 * Treina com os valores atuais das entradas e os alvos das saídas, que
+	 * entram nas amostras; com withScreen false, só com as amostras guardadas
 	 */
-	Execution::TrainResult train();
+	Execution::TrainResult train(bool withScreen = true);
 
 	/**
 	 * Sorteia de novo, entre -1 e 1, os bias e os pesos que o treino ajusta;
@@ -521,6 +522,11 @@ public:
 	 * saídas ou com valores inválidos
 	 */
 	int getRecognized();
+
+	/**
+	 * Valor da saída, contando de 0 na ordem de leitura
+	 */
+	double getOutputValue(int output);
 
 	/**
 	 * Saída com o único alvo diferente de 0, ou -1

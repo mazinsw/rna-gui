@@ -6,7 +6,8 @@ A interface usa [Clay](https://github.com/nicbarker/clay) (incluído em `third_p
 [raylib](https://www.raylib.com/) 5.5 ou superior. O mesmo `Makefile` atende macOS, Linux e Windows:
 
 ```
-make            # build/NeuralNetwork (interface) e build/RedesNeurais (console)
+make            # build/NeuralNetwork (interface), build/rna (linha de comando) e
+                # build/RedesNeurais (console)
 make run        # abre a interface
 make test       # executa o console com testes_treinamento.txt
 ```
@@ -230,6 +231,35 @@ figura:
 | 7 | 2666, 626, 4148, 2967, 7145, 5234, 6490, 6944, 7028, 9204 |
 | 8 | 2246, 936, 9375, 6493, 7244, 7146, 2004, 7767, 1202, 8476 |
 | 9 | 5268, 2494, 5671, 1428, 4078, 6168, 8962, 2740, 9740, 3693 |
+
+## Linha de comando
+
+`build/rna` treina e usa pelo terminal as redes da interface (`.bin`), com as amostras gravadas ao
+lado delas, usando o mesmo código da interface, sem abrir a janela:
+
+```
+build/rna treinar <rede.bin> [saida.bin]
+build/rna reconhecer <rede.bin> <imagem>...
+```
+
+- `treinar` faz o mesmo que o botão "Treinar" com as amostras gravadas e grava a rede treinada, com
+  as amostras ao lado, em `saida.bin` ou, sem ele, na própria rede. Termina com 0 quando as saídas
+  chegam aos alvos e com 2 quando não chegam; rodar de novo continua o treino.
+- `reconhecer` mostra, para cada imagem, a saída de maior valor e o valor dela, como ao arrastar a
+  imagem para a janela. Com o dígito no começo do nome do arquivo mostra o esperado quando erra e,
+  com mais de uma imagem, os acertos.
+
+```
+$ build/rna treinar exemplos/digitos28.bin treinada.bin
+Treinado com 500 amostras em 52 iterações: erro de 923,21 para 0,31.
+Rede salva em treinada.bin.
+$ build/rna reconhecer treinada.bin exemplos/digitos/*.png
+0_0.png: 0 (1)
+...
+7_3.png: 9 (0,51), esperado 7
+...
+Acertos: 65 de 100 (65%)
+```
 
 ## Console
 

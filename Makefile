@@ -1,6 +1,7 @@
 # Redes Neurais - build para macOS, Linux e Windows (MSYS2), GUI com Clay + raylib
 #
-#   make           GUI (build/NeuralNetwork) e console (build/RedesNeurais)
+#   make           GUI (build/NeuralNetwork), console (build/RedesNeurais) e
+#                  linha de comando das redes da GUI (build/rna)
 #   make raylib    baixa e compila o raylib em third_party/, usado no lugar do
 #                  raylib do sistema (para quando não há pacote >= 5.5)
 #   make app       pacote build/NeuralNetwork.app (somente macOS)
@@ -45,6 +46,8 @@ PLATFORM_LIBS := -framework Cocoa -framework IOKit -framework OpenGL -framework 
 SHA256SUM     := shasum -a 256
 else ifeq ($(TARGET_OS),windows)
 PLATFORM_LIBS := -lopengl32 -lgdi32 -lwinmm
+# CommandLineToArgvW, para os argumentos em UTF-8
+RNA_LIBS      := -lshell32
 # estático para o .exe não depender das DLLs do MSYS2
 GUI_LDFLAGS   := -mwindows -static
 CLI_LDFLAGS   := -static
@@ -95,26 +98,35 @@ GUI_RES   := $(OBJDIR)/res/windows/app.o
 endif
 
 DIGITOS_OBJS := $(OBJDIR)/tools/digitos.o $(OBJDIR)/gui/Pixels.o $(OBJDIR)/gui/Platform.o
+# as redes da GUI sem a janela
+RNA_OBJS  := $(OBJDIR)/cli/main.o $(OBJDIR)/cli/Console.o \
+             $(filter-out $(OBJDIR)/gui/main.o,$(GUI_OBJS))
 
 BIN2C     := $(BUILD)/bin2c$(HOST_EXE)
 GUI_BIN   := $(BUILD)/NeuralNetwork$(EXE)
 CLI_BIN   := $(BUILD)/RedesNeurais$(EXE)
 DIGITOS   := $(BUILD)/digitos$(EXE)
+RNA_BIN   := $(BUILD)/rna$(EXE)
 APP       := $(BUILD)/NeuralNetwork.app
 
-.PHONY: all gui console raylib raylib-check app run test digitos clean distclean
+.PHONY: all gui console rna raylib raylib-check app run test digitos clean distclean
 
-all: gui console
+all: gui console rna
 
 gui: $(GUI_BIN)
 
 console: $(CLI_BIN)
+
+rna: $(RNA_BIN)
 
 $(GUI_BIN): $(GUI_OBJS) $(GUI_RES)
 	$(CXX) $(LDFLAGS) $(GUI_LDFLAGS) -o $@ $^ $(RAYLIB_LIBS)
 
 $(CLI_BIN): $(CLI_OBJS)
 	$(CXX) $(LDFLAGS) $(CLI_LDFLAGS) -o $@ $^
+
+$(RNA_BIN): $(RNA_OBJS)
+	$(CXX) $(LDFLAGS) $(CLI_LDFLAGS) -o $@ $^ $(RAYLIB_LIBS) $(RNA_LIBS)
 
 # usa a redução de imagens da interface, para as amostras serem iguais às
 # imagens arrastadas para a janela
@@ -125,7 +137,7 @@ digitos: $(DIGITOS)
 	./$(DIGITOS) exemplos/digitos exemplos/digitos.bin
 	./$(DIGITOS) exemplos/digitos28 exemplos/digitos28.bin 28 16
 
-$(GUI_OBJS): | raylib-check
+$(GUI_OBJS) $(RNA_OBJS): | raylib-check
 
 raylib-check:
 ifneq ($(RAYLIB_CHECK),)
@@ -142,6 +154,10 @@ $(OBJDIR)/%.o: %.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 $(OBJDIR)/tools/digitos.o: tools/digitos.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(RAYLIB_CFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(OBJDIR)/cli/%.o: cli/%.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(RAYLIB_CFLAGS) $(CXXFLAGS) -c $< -o $@
 
@@ -210,4 +226,4 @@ clean:
 distclean: clean
 	rm -rf $(RAYLIB_DIR)
 
--include $(CLI_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(OBJDIR)/tools/digitos.d
+-include $(CLI_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(OBJDIR)/tools/digitos.d $(RNA_OBJS:.o=.d)

@@ -370,7 +370,7 @@ void Execution::clearChanged()
 	}
 }
 
-Execution::TrainResult Execution::train()
+Execution::TrainResult Execution::train(bool withScreen)
 {
 	TrainResult result = { Trained, 0, 0, 0, false, 0, false };
 	clearChanged();
@@ -389,7 +389,7 @@ Execution::TrainResult Execution::train()
 	// as saídas da softmax somam 1 e não chegam a todos os alvos em 0
 	bool hasTarget = std::any_of(screen.targets.begin(), screen.targets.end(),
 		[](double target) { return target != 0; });
-	if(softmax.empty() || hasTarget)
+	if(withScreen && (softmax.empty() || hasTarget))
 		result.samplesChanged = remember(screen);
 	else if(!matches(screen))
 		samples.clear();

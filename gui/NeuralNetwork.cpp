@@ -1434,9 +1434,9 @@ bool NeuralNetwork::isRunning()
 	return running;
 }
 
-Execution::TrainResult NeuralNetwork::train()
+Execution::TrainResult NeuralNetwork::train(bool withScreen)
 {
-	Execution::TrainResult result = execution.train();
+	Execution::TrainResult result = execution.train(withScreen);
 	if(result.changed || result.samplesChanged)
 		modified = true;
 	return result;
@@ -1546,6 +1546,11 @@ int NeuralNetwork::getRecognized()
 			recognized = (int)i;
 	}
 	return recognized;
+}
+
+double NeuralNetwork::getOutputValue(int output)
+{
+	return readingOrder(Node::TypeOutput)[output]->getValue();
 }
 
 int NeuralNetwork::getExpected()
